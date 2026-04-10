@@ -5,7 +5,7 @@ using the Gemini CLI, returning structured session data and statistics.
 
 Usage Examples:
     # Use as a library
-    from src.utils.gemini_cli_headless import run_gemini_cli_headless
+    from gemini_cli_headless import run_gemini_cli_headless
     session = run_gemini_cli_headless("Hello world")
     print(session.text, session.stats)
 
@@ -36,7 +36,7 @@ class GeminiSession:
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
 def _get_cli_chat_dir(project_name: str) -> str:
-    """Returns the internal Gemini CLI chat directory for a given project."""
+    \"\"\"Returns the internal Gemini CLI chat directory for a given project.\"\"\"
     return os.path.join(os.path.expanduser("~"), ".gemini", "tmp", project_name, "chats")
 
 def run_gemini_cli_headless(
@@ -45,9 +45,10 @@ def run_gemini_cli_headless(
     files: Optional[List[str]] = None,
     session_to_resume: Optional[str] = None,
     project_name: str = "fdds",
+    cwd: Optional[str] = None,
     extra_args: Optional[List[str]] = None
 ) -> GeminiSession:
-    """
+    \"\"\"
     Standalone wrapper for the Gemini CLI in headless mode.
     
     Args:
@@ -56,11 +57,12 @@ def run_gemini_cli_headless(
         files: Optional list of file paths to attach.
         session_to_resume: Either a UUID string OR a path to a .json session file.
         project_name: The name used by CLI to scope the project (defaults to 'fdds').
+        cwd: Current working directory for the agent (Level 2 protection).
         extra_args: Any additional flags to pass to the CLI.
         
     Returns:
         GeminiSession object containing response, ID, path, and stats.
-    """
+    \"\"\"
     
     session_id_to_use = None
     cli_dir = _get_cli_chat_dir(project_name)
@@ -114,7 +116,14 @@ def run_gemini_cli_headless(
         cmd.extend(["--prompt", cli_prompt])
 
         # 4. Execute
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', check=False)
+        result = subprocess.run(
+            cmd, 
+            cwd=cwd, 
+            capture_output=True, 
+            text=True, 
+            encoding='utf-8', 
+            check=False
+        )
 
         # 5. Parse Output
         if not result.stdout.strip():
