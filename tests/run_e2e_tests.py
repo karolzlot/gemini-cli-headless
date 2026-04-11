@@ -1,4 +1,4 @@
-"""
+﻿"""
 End-to-End Test Runner for Gemini CLI Headless Orchestrator.
 Discovers and executes data-driven test cases from the e2e_cases/ directory.
 """
@@ -43,16 +43,19 @@ def run_case(case_path: str, runner_script: str, keep_workspace: bool) -> bool:
             cfg = json.load(f)
             
         # 5. Execute implementation_run.py
+        # Ensure GEMINI_API_KEY is passed to the environment
+        env = os.environ.copy()
+        
         cmd = [
             sys.executable, runner_script,
             "--workspace", workspace,
             "--max-iters", str(cfg.get("max_iters", 3)),
-            "--doer-model", cfg.get("doer_model", "gemini-1.5-flash"),
-            "--qa-model", cfg.get("qa_model", "gemini-1.5-flash")
+            "--doer-model", cfg.get("doer_model", "gemini-3-flash-preview"),
+            "--qa-model", cfg.get("qa_model", "gemini-3-flash-preview")
         ]
         
         print(f"  > Executing {case_name}...")
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', env=env)
         
         # 6. Common Assertions
         state_path = os.path.join(workspace, "run_state.json")
@@ -68,6 +71,8 @@ def run_case(case_path: str, runner_script: str, keep_workspace: bool) -> bool:
             if state.get("status") != "SUCCESS":
                 success = False
                 errors.append(f"Status is {state.get('status')} instead of SUCCESS")
+                if state.get("error"):
+                    errors.append(f"State Error: {state.get('error')}")
 
         # Check for IRP and QRP artifacts
         iters = state.get("iteration", 0) if os.path.exists(state_path) else 0
@@ -82,7 +87,8 @@ def run_case(case_path: str, runner_script: str, keep_workspace: bool) -> bool:
                 errors.append(f"Missing QRP_v{iters}.md artifact")
             else:
                 with open(qrp_path, 'r') as f:
-                    if "[STATUS: APPROVED]" not in f.readline():
+                    content = f.read()
+                    if "[STATUS: APPROVED]" not in content:
                         success = False
                         errors.append("QA Report is not APPROVED")
 
