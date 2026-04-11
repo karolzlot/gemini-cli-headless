@@ -1,4 +1,4 @@
-﻿"""
+"""
 Autonomous Implementation Orchestrator (Implementation Run)
 Handles a deterministic Doer <-> QA loop driven by versioned Markdown artifacts.
 Inspired by the kanbanAgents workflow.
@@ -16,6 +16,7 @@ import shutil
 import time
 import hashlib
 import argparse
+import logging
 from typing import List, Dict, Optional
 from gemini_cli_headless import run_gemini_cli_headless, GeminiSession
 
@@ -92,12 +93,20 @@ def load_run_state(path: str) -> Dict:
         "iteration": 0,
         "total_cost": 0.0,
         "history": [], # List of {iteration, doer_hash, qa_status, feedback_hash}
-        "status": "PENDING"
+        "status": "PENDING",
+        "error": None
     }
 
 def save_run_state(path: str, state: Dict):
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
+
+def update_cost(state: Dict, session: GeminiSession):
+    """Simple cost estimation fallback if CLI doesn't return cost directly."""
+    # Assuming cost calculation is handled outside or by CLI.
+    # We just accumulate whatever cost CLI provides in trace/stats
+    cost = session.stats.get("cost", 0.0)
+    state["total_cost"] += float(cost)
 
 # --- Main Logic ---
 
@@ -111,9 +120,12 @@ def run_implementation(workspace: str, model_doer: str, model_qa: str, max_iters
         return
 
     # Load IRQ title for prompts
+    task_title = "Unknown Task"
     with open(irq_path, 'r', encoding='utf-8') as f:
-        first_line = f.readline()
-        task_title = first_line.strip('# ').strip()
+        for line in f:
+            if line.strip().startswith('#'):
+                task_title = line.strip('# ').strip()
+                break
 
     state = load_run_state(state_path)
     if state["status"] in ["SUCCESS", "ABORTED", "DEADLOCK"]:
@@ -129,97 +141,109 @@ def run_implementation(workspace: str, model_doer: str, model_qa: str, max_iters
             with open(p, 'w', encoding='utf-8') as f:
                 json.dump({"sessionId": f"init-{role}-{int(time.time())}", "messages": []}, f)
 
-    for i in range(state["iteration"] + 1, max_iters + 1):
-        state["iteration"] = i
-        print(f"\n>>> ITERATION {i} <<<")
+    try:
+        for i in range(state["iteration"] + 1, max_iters + 1):
+            state["iteration"] = i
+            print(f"\n>>> ITERATION {i} <<<")
 
-        # --- PHASE 1: DOER ---
-        print(f"[DOER] Implementing changes...")
-        irp_file = f"IRP_v{i}.md"
-        irp_path = os.path.join(workspace, irp_file)
-        
-        history_str = "First attempt." if i == 1 else f"QA rejected previous attempt. Feedback is in QRP_v{i-1}.md."
-        prompt = DOER_PROMPT.format(task_title=task_title, version=i, history_context=history_str)
-
-        # Doer execution with self-correction
-        for retry in range(2):
-            session = run_gemini_cli_headless(prompt, model_id=model_doer, session_to_resume=doer_session_local, cwd=workspace)
-            shutil.copy2(session.session_path, doer_session_local)
-            if os.path.exists(irp_path): break
-            print(f"  [!] Doer forgot artifact {irp_file}. Reprimanding...")
-            prompt = REPRIMAND_TEMPLATE.format(expected_file=irp_file)
-        
-        if not os.path.exists(irp_path):
-            print("ABORT: Doer failed to produce IRP after retries.")
-            state["status"] = "ABORTED"
-            save_run_state(state_path, state)
-            return
-
-        # Loop Detection: Did the files actually change?
-        current_hash = get_workspace_hash(workspace)
-        prev_hash = state["history"][-1].get("doer_hash") if state["history"] else None
-        if current_hash == prev_hash and i > 1:
-            print("!!! WARNING: Workspace hash unchanged. Potential Doer loop detected.")
-
-        # --- PHASE 2: QA ---
-        print(f"[QA] Auditing work...")
-        qrp_file = f"QRP_v{i}.md"
-        qrp_path = os.path.join(workspace, qrp_file)
-        
-        prompt = QA_PROMPT.format(version=i)
-        
-        for retry in range(2):
-            session = run_gemini_cli_headless(prompt, model_id=model_qa, session_to_resume=qa_session_local, cwd=workspace)
-            shutil.copy2(session.session_path, qa_session_local)
+            # --- PHASE 1: DOER ---
+            print(f"[DOER] Implementing changes...")
+            irp_file = f"IRP_v{i}.md"
+            irp_path = os.path.join(workspace, irp_file)
             
-            if os.path.exists(qrp_path):
-                with open(qrp_path, 'r', encoding='utf-8') as f:
-                    first_line = f.readline().strip()
-                if "[STATUS: APPROVED]" in first_line or "[STATUS: REJECTED]" in first_line:
-                    break
-            print(f"  [!] QA failed format for {qrp_file}. Reprimanding...")
-            prompt = REPRIMAND_TEMPLATE.format(expected_file=qrp_file)
+            history_str = "First attempt." if i == 1 else f"QA rejected previous attempt. Feedback is in QRP_v{i-1}.md."
+            prompt = DOER_PROMPT.format(task_title=task_title, version=i, history_context=history_str)
 
-        if not os.path.exists(qrp_path):
-            print("ABORT: QA failed to produce valid QRP.")
-            state["status"] = "ABORTED"
-            save_run_state(state_path, state)
-            return
-
-        # Parse Outcome
-        with open(qrp_path, 'r', encoding='utf-8') as f:
-            full_feedback = f.read()
-            status = "APPROVED" if "[STATUS: APPROVED]" in full_feedback.split('\n')[0] else "REJECTED"
-
-        feedback_hash = hashlib.md5(full_feedback.encode()).hexdigest()
-        
-        # Save iteration to history
-        state["history"].append({
-            "iteration": i,
-            "doer_hash": current_hash,
-            "qa_status": status,
-            "feedback_hash": feedback_hash
-        })
-
-        if status == "APPROVED":
-            print(f"\nSUCCESS: Implementation approved in {i} iterations.")
-            state["status"] = "SUCCESS"
-            save_run_state(state_path, state)
-            return
-        else:
-            # Check for Feedback loop (QA saying the same thing twice)
-            if len(state["history"]) > 1 and feedback_hash == state["history"][-2]["feedback_hash"]:
-                print("!!! DEADLOCK: QA feedback is identical to previous iteration. Aborting.")
-                state["status"] = "DEADLOCK"
+            # Doer execution with self-correction
+            for retry in range(2):
+                session = run_gemini_cli_headless(prompt, model_id=model_doer, session_to_resume=doer_session_local, cwd=workspace)
+                shutil.copy2(session.session_path, doer_session_local)
+                update_cost(state, session)
+                
+                if os.path.exists(irp_path): break
+                print(f"  [!] Doer forgot artifact {irp_file}. Reprimanding...")
+                prompt = REPRIMAND_TEMPLATE.format(expected_file=irp_file)
+            
+            if not os.path.exists(irp_path):
+                print("ABORT: Doer failed to produce IRP after retries.")
+                state["status"] = "ABORTED"
+                state["error"] = "Doer failed to produce IRP.md"
                 save_run_state(state_path, state)
                 return
-            
-            print(f"  [!] REJECTED. Moving to iteration {i+1}.")
-            save_run_state(state_path, state)
 
-    print(f"\nFAILURE: Reached limit of {max_iters} iterations.")
-    state["status"] = "FAILED"
-    save_run_state(state_path, state)
+            # Loop Detection: Did the files actually change?
+            current_hash = get_workspace_hash(workspace)
+            prev_hash = state["history"][-1].get("doer_hash") if state["history"] else None
+            if current_hash == prev_hash and i > 1:
+                print("!!! WARNING: Workspace hash unchanged. Potential Doer loop detected.")
+
+            # --- PHASE 2: QA ---
+            print(f"[QA] Auditing work...")
+            qrp_file = f"QRP_v{i}.md"
+            qrp_path = os.path.join(workspace, qrp_file)
+            
+            prompt = QA_PROMPT.format(version=i)
+            
+            for retry in range(2):
+                session = run_gemini_cli_headless(prompt, model_id=model_qa, session_to_resume=qa_session_local, cwd=workspace)
+                shutil.copy2(session.session_path, qa_session_local)
+                update_cost(state, session)
+                
+                if os.path.exists(qrp_path):
+                    with open(qrp_path, 'r', encoding='utf-8') as f:
+                        first_line = f.readline().strip()
+                    if "[STATUS: APPROVED]" in first_line or "[STATUS: REJECTED]" in first_line:
+                        break
+                print(f"  [!] QA failed format for {qrp_file}. Reprimanding...")
+                prompt = REPRIMAND_TEMPLATE.format(expected_file=qrp_file)
+
+            if not os.path.exists(qrp_path):
+                print("ABORT: QA failed to produce valid QRP.")
+                state["status"] = "ABORTED"
+                state["error"] = "QA failed to produce QRP.md"
+                save_run_state(state_path, state)
+                return
+
+            # Parse Outcome
+            with open(qrp_path, 'r', encoding='utf-8') as f:
+                full_feedback = f.read()
+                status = "APPROVED" if "[STATUS: APPROVED]" in full_feedback.split('\n')[0] else "REJECTED"
+
+            feedback_hash = hashlib.md5(full_feedback.encode()).hexdigest()
+            
+            # Save iteration to history
+            state["history"].append({
+                "iteration": i,
+                "doer_hash": current_hash,
+                "qa_status": status,
+                "feedback_hash": feedback_hash
+            })
+
+            if status == "APPROVED":
+                print(f"\nSUCCESS: Implementation approved in {i} iterations.")
+                state["status"] = "SUCCESS"
+                save_run_state(state_path, state)
+                return
+            else:
+                # Check for Feedback loop (QA saying the same thing twice)
+                if len(state["history"]) > 1 and feedback_hash == state["history"][-2]["feedback_hash"]:
+                    print("!!! DEADLOCK: QA feedback is identical to previous iteration. Aborting.")
+                    state["status"] = "DEADLOCK"
+                    save_run_state(state_path, state)
+                    return
+                
+                print(f"  [!] REJECTED. Moving to iteration {i+1}.")
+                save_run_state(state_path, state)
+
+        print(f"\nFAILURE: Reached limit of {max_iters} iterations.")
+        state["status"] = "FAILED"
+        save_run_state(state_path, state)
+
+    except Exception as e:
+        print(f"FATAL ERROR: {e}")
+        state["status"] = "ABORTED"
+        state["error"] = str(e)
+        save_run_state(state_path, state)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Deterministic Implementation Run")

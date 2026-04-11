@@ -36,7 +36,7 @@ class GeminiSession:
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
 def _get_cli_chat_dir(project_name: str) -> str:
-    \"\"\"Returns the internal Gemini CLI chat directory for a given project.\"\"\"
+    """Returns the internal Gemini CLI chat directory for a given project."""
     return os.path.join(os.path.expanduser("~"), ".gemini", "tmp", project_name, "chats")
 
 def run_gemini_cli_headless(
@@ -48,7 +48,7 @@ def run_gemini_cli_headless(
     cwd: Optional[str] = None,
     extra_args: Optional[List[str]] = None
 ) -> GeminiSession:
-    \"\"\"
+    """
     Standalone wrapper for the Gemini CLI in headless mode.
     
     Args:
@@ -62,7 +62,7 @@ def run_gemini_cli_headless(
         
     Returns:
         GeminiSession object containing response, ID, path, and stats.
-    \"\"\"
+    """
     
     session_id_to_use = None
     cli_dir = _get_cli_chat_dir(project_name)
@@ -126,17 +126,25 @@ def run_gemini_cli_headless(
         )
 
         # 5. Parse Output
-        if not result.stdout.strip():
-            raise RuntimeError(f"CLI returned empty output. Stderr: {result.stderr}")
-
-        output = result.stdout.strip()
-        # Handle cases where CLI might print some non-json text before the JSON block
-        if not output.startswith('{'):
-            start_idx = output.find('{')
-            if start_idx != -1: output = output[start_idx:]
-            else: raise RuntimeError(f"CLI output did not contain JSON: {output}")
+        # Combine stdout and stderr because CLI might split JSON and logs
+        combined_output = (result.stdout or "") + (result.stderr or "")
         
-        response_data = json.loads(output)
+        if not combined_output.strip():
+            raise RuntimeError(f"CLI returned absolutely empty output.")
+
+        # Find the JSON block (starts with { and ends with })
+        start_idx = combined_output.find('{')
+        end_idx = combined_output.rfind('}')
+        
+        if start_idx == -1 or end_idx == -1 or end_idx < start_idx:
+            raise RuntimeError(f"CLI output did not contain a valid JSON block: {combined_output}")
+            
+        json_str = combined_output[start_idx:end_idx+1]
+        
+        try:
+            response_data = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            raise RuntimeError(f"Failed to parse extracted JSON: {str(e)}\nExtracted: {json_str}")
         
         if "error" in response_data and response_data["error"]:
             err = response_data["error"]
