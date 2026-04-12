@@ -4,7 +4,7 @@ If you rely on an LLM to parse a chat stream to determine if a task is finished,
 
 The Developer OS abandons unstructured chat entirely in favor of a strict **Artifact-Driven Workflow**.
 
-## The Artifact Contract (Layer 2 API)
+## The Artifact Contract (Artifact Prompting)
 
 Agents are legally bound to produce and consume physical Markdown files. These files act as the universal API between the human, the Manager, the Doer, and the QA. They are use-case independent.
 

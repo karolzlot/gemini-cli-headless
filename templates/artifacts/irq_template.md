@@ -18,7 +18,7 @@ Explicitly list what the Doer MUST NOT touch or change.
 - Do not refactor X.
 - Do not modify Y.
 
-# Architectural Constraints (Layer 3 Invariants)
+# Architectural Constraints (Project Invariants)
 List specific rules from GEMINI.md or designs/*.md that must be strictly upheld.
 - [e.g., Maintain strict Logic/View separation]
 

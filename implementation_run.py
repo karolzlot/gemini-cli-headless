@@ -117,14 +117,49 @@ def update_stats(state: Dict, session: GeminiSession, model_id: str):
     cost = calculate_cost(model_id, input_tokens, output_tokens, cached_tokens)
     state["total_cost"] += float(cost)
 
+def get_project_context(workspace: str) -> str:
+    context = []
+    # 1. Primary Layer 3: GEMINI.md
+    gemini_path = os.path.join(workspace, "GEMINI.md")
+    if os.path.exists(gemini_path):
+        with open(gemini_path, 'r', encoding='utf-8') as f:
+            context.append(f"<project_context>\n{f.read()}\n</project_context>")
+    
+    # 2. Supporting Layer 3: designs/
+    designs_dir = os.path.join(workspace, "designs")
+    if os.path.exists(designs_dir):
+        design_files = [f for f in os.listdir(designs_dir) if f.endswith('.md')]
+        if design_files:
+            designs_context = ["<design_documents>"]
+            for df in design_files:
+                with open(os.path.join(designs_dir, df), 'r', encoding='utf-8') as f:
+                    designs_context.append(f'<document path="designs/{df}">\n{f.read()}\n</document>')
+            designs_context.append("</design_documents>")
+            context.append("\n".join(designs_context))
+            
+    if not context: return ""
+    return "\n<layer_3_context>\n" + "\n\n".join(context) + "\n</layer_3_context>\n"
+
 # --- Main Logic ---
 
 def run_implementation(workspace: str, config: Dict):
     workspace = os.path.abspath(workspace)
+    
+    # 0. Enforce Layer 2 Artifact Presence
     irq_path = os.path.join(workspace, "IRQ.md")
+    qar_path = os.path.join(workspace, "QAR.md")
+    
     if not os.path.exists(irq_path):
-        print(f"ERROR: IRQ.md not found in {workspace}")
+        print(f"ERROR: IRQ.md (Implementation Request) not found in {workspace}")
         return
+    if not os.path.exists(qar_path):
+        print(f"ERROR: QAR.md (QA Request) not found in {workspace}")
+        return
+
+    with open(irq_path, 'r', encoding='utf-8') as f:
+        irq_content = f.read()
+    with open(qar_path, 'r', encoding='utf-8') as f:
+        qar_content = f.read()
 
     # 1. Setup Registry
     run_id = config.get("run_id", f"run_{int(time.time())}")
@@ -151,12 +186,21 @@ def run_implementation(workspace: str, config: Dict):
     model_doer = config.get("doer_model", "gemini-3-flash-preview")
     model_qa = config.get("qa_model", "gemini-3-flash-preview")
 
+    # Load Layer 3 (Project Brain)
+    print(f"[INFO] Loading Layer 3 Context (GEMINI.md, designs/)...")
+    project_context = get_project_context(workspace)
+    if project_context:
+        print(f"  [+] Layer 3 Context loaded successfully.")
+    else:
+        print(f"  [!] No Layer 3 Context found.")
+
     for i in range(state["iteration"] + 1, max_iters + 1):
         state["iteration"] = i
         print(f"\n>>> ITERATION {i} <<<")
 
         # --- PHASE 1: DOER ---
         print(f"[DOER] Working (Model: {model_doer})...")
+        print(f"  [Context] Injecting IRQ.md and Layer 3...")
         
         # Build Context
         doer_prompt = load_template(tmpl.get("doer_prompt_path", os.path.join(DEFAULT_TEMPLATES_DIR, "roles/doer_prompt.md")))
@@ -165,7 +209,9 @@ def run_implementation(workspace: str, config: Dict):
         history_qrp = get_historical_context(registry_path, "QRP", mem.get("doer_past_qrp_count", 1))
         history_irp = get_historical_context(registry_path, "IRP", mem.get("doer_past_irp_count", 0))
         
-        full_prompt = f"{doer_prompt}\n\n<active_feedback>\n{history_qrp}\n{history_irp}\n</active_feedback>\n\n"
+        full_prompt = f"{doer_prompt}\n\n<execution_artifacts>\n<IRQ>\n{irq_content}\n</IRQ>\n</execution_artifacts>\n\n"
+        full_prompt += project_context
+        full_prompt += f"\n\n<active_feedback>\n{history_qrp}\n{history_irp}\n</active_feedback>\n\n"
         full_prompt += f"<template id=\"irp\">\n{irp_template}\n</template>\n\nGo."
 
         # Session Amnesia
@@ -204,7 +250,9 @@ def run_implementation(workspace: str, config: Dict):
         current_irp = get_historical_context(registry_path, "IRP", 1) # Always see current
         history_qrp_qa = get_historical_context(registry_path, "QRP", mem.get("qa_past_qrp_count", 2))
         
-        full_prompt_qa = f"{qa_prompt}\n\n<historical_feedback>\n{history_qrp_qa}\n</historical_feedback>\n\n"
+        full_prompt_qa = f"{qa_prompt}\n\n<execution_artifacts>\n<IRQ>\n{irq_content}\n</IRQ>\n<QAR>\n{qar_content}\n</QAR>\n</execution_artifacts>\n\n"
+        full_prompt_qa += project_context
+        full_prompt_qa += f"\n\n<historical_feedback>\n{history_qrp_qa}\n</historical_feedback>\n\n"
         full_prompt_qa += f"<current_implementation>\n{current_irp}\n</current_implementation>\n\n"
         full_prompt_qa += f"<template id=\"qrp\">\n{qrp_template}\n</template>\n\nVerify."
 

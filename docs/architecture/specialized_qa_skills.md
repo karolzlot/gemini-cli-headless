@@ -20,9 +20,9 @@ A generic "QA prompt" cannot know how to test *your* specific app.
 
 To solve this, the Developer OS relies on the **3-Layer Prompting Stack**. 
 
-We do not write a massive prompt telling the QA agent how to test a Unity game. The QA Agent (Layer 1) is a **generic, blind execution engine**. It has zero authority to invent testing philosophy. 
+We do not write a massive prompt telling the QA agent how to test a Unity game. The QA Agent (Roles Prompting) is a **generic, blind execution engine**. It has zero authority to invent testing philosophy. 
 
-Instead, "QA Skills" live in the target project's `GEMINI.md` file (Layer 3), under a strict `## QA Rituals & Testing` header. 
+Instead, "QA Skills" live in the target project's `GEMINI.md` file (Project Prompting), under a strict `## QA Rituals & Testing` header. 
 
 When the QA Agent wakes up, its generic prompt instructs it to:
 1. Locate the `## QA Rituals & Testing` section in `GEMINI.md`.
