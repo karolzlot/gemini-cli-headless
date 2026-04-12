@@ -43,4 +43,5 @@ As the Manager, you should follow this sequence for every request:
 3.  **Contract**: Run `draft-contracts` and then fill in the `IRQ.md` and `QAR.md` using your file-writing tools.
 4.  **Dispatch**: Run `run-loop --git-gate`.
 5.  **Audit**: Review the final `QRP.md` and report back to the human.
-6.  **Grow**: If the human is unhappy, update the project's `GEMINI.md` (or `.gemini/qa_rituals.json`) with a new ritual and repeat.
+6.  **Grow**: If the human is unhappy, update the project's `GEMINI.md` with a new ritual and repeat.
+with a new ritual and repeat.

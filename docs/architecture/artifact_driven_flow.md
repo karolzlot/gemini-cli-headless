@@ -10,7 +10,7 @@ In software engineering, an "artifact" is just a formal word for a physical file
 
 In this system, agents are legally bound to produce and consume physical Markdown files instead of just chatting. These files act as the universal communication method between you, the Manager, the Doer, and the QA. 
 
-## The Artifact Contract (Artifact Prompting)
+## The Artifact Contract (Artifact Templates)
 
 ### 1. The Manager's Artifacts (`IRQ.md` & `QAR.md`)
 The Manager agent interacts with the human to determine intent, then compiles it into two strict downstream artifacts:

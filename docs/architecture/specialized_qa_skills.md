@@ -41,4 +41,4 @@ If the human Tech Lead rejects a completed task because *"The UI looks broken on
 
 The next time the generic QA Agent wakes up (even for a completely different feature), it reads the updated `GEMINI.md`. **The system has permanently learned how to test your UI.**
 
-By treating QA as a strict separation between **Policy Formulation (Manager -> Layer 3)** and **Policy Execution (QA -> Layer 1)**, the Developer OS transforms generic agents into seasoned, project-aware engineering partners who understand exactly what "done" looks like in your codebase.
+By treating QA as a strict separation between **Policy Formulation (Manager -> Project Knowledge)** and **Policy Execution (QA -> Role Prompts)**, the Developer OS transforms generic agents into seasoned, project-aware engineering partners who understand exactly what "done" looks like in your codebase.

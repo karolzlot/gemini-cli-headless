@@ -119,21 +119,13 @@ def update_stats(state: Dict, session: GeminiSession, model_id: str):
 
 def get_project_context(workspace: str) -> str:
     context = []
-    # 1. Primary Layer 3: GEMINI.md
+    # 1. Primary Project Knowledge: GEMINI.md
     gemini_path = os.path.join(workspace, "GEMINI.md")
     if os.path.exists(gemini_path):
         with open(gemini_path, 'r', encoding='utf-8') as f:
             context.append(f"<project_context>\n{f.read()}\n</project_context>")
     
-    # 2. Structured Rituals: .gemini/qa_rituals.json
-    rituals_path = os.path.join(workspace, ".gemini", "qa_rituals.json")
-    if os.path.exists(rituals_path):
-        with open(rituals_path, 'r', encoding='utf-8') as f:
-            rituals_data = json.load(f)
-            rituals_text = "\n".join([f"- {r.get('name')}: {r.get('instruction')}" for r in rituals_data.get("rituals", [])])
-            context.append(f"<structured_qa_rituals>\n{rituals_text}\n</structured_qa_rituals>")
-
-    # 3. Supporting Layer 3: designs/
+    # 2. Supporting Project Knowledge: designs/
     designs_dir = os.path.join(workspace, "designs")
     if os.path.exists(designs_dir):
         design_files = [f for f in os.listdir(designs_dir) if f.endswith('.md')]

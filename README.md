@@ -44,7 +44,7 @@ Dive deeper into the philosophy and mechanics of the Developer OS:
 *   [The Developer OS Manifesto](docs/philosophy/manifesto.md)
 
 ### Architecture
-*   [The 3-Part Prompting Stack](docs/architecture/prompting_architecture.md)
+*   [The Prompting Architecture](docs/architecture/prompting_architecture.md)
 *   [System Design & Isolation](docs/architecture/system_design.md)
 *   [The Artifact Contract & Reprimand Loops](docs/architecture/artifact_driven_flow.md)
 *   [The Amnesia Engine & Context Injection](docs/architecture/amnesia_engine.md)
@@ -60,7 +60,7 @@ Dive deeper into the philosophy and mechanics of the Developer OS:
 
 ## 🚀 The Developer OS v0.2 Features
 
-*   **3-Part Prompting**: Strict Roles, Artifacts, and Project context.
+*   **The Prompting Architecture**: Strict Role Prompts, Artifact Templates, and Project Knowledge.
 *   **Artifact Schema Validation**: Automatic reprimands for agents who fail to follow file structures.
 *   **Git Gating**: Enforcement of clean workspaces for deterministic execution.
 *   **Manager Toolbox**: Simplified interaction scripts for project initialization and task creation.
