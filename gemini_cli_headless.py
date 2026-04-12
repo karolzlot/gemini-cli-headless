@@ -55,7 +55,8 @@ def run_gemini_cli_headless(
     session_to_resume: Optional[str] = None,
     project_name: Optional[str] = None,
     cwd: Optional[str] = None,
-    extra_args: Optional[List[str]] = None
+    extra_args: Optional[List[str]] = None,
+    stream_output: bool = False
 ) -> GeminiSession:
     """
     Standalone wrapper for the Gemini CLI in headless mode.
@@ -100,17 +101,35 @@ def run_gemini_cli_headless(
     if extra_args: cmd.extend(extra_args)
     
     # Execute by piping the prompt to stdin
-    result = subprocess.run(
-        cmd, 
-        cwd=cwd, 
-        capture_output=True, 
-        text=True, 
-        encoding='utf-8', 
-        check=False,
-        input=full_prompt
+    process = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding='utf-8',
+        bufsize=1 # Line buffered
     )
+    
+    # Send the prompt and close stdin
+    if full_prompt:
+        process.stdin.write(full_prompt)
+    process.stdin.close()
 
-    combined_output = (result.stdout or "") + (result.stderr or "")
+    combined_output = ""
+    # Read output in real-time
+    while True:
+        line = process.stdout.readline()
+        if not line and process.poll() is not None:
+            break
+        if line:
+            combined_output += line
+            if stream_output:
+                print(line, end="", flush=True)
+
+    process.stdout.close()
+    return_code = process.wait()
     
     if not combined_output.strip():
         raise RuntimeError(f"CLI returned absolutely empty output.")

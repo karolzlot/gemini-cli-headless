@@ -1,0 +1,1 @@
+Manager, in app_a, create success.txt with content 'AGENT_WORKS'. Run the implementation loop to finish it.
