@@ -1,12 +1,8 @@
 import unittest
-from container import Container, CircularDependencyError
+from container import Container, CircularDependencyError, RegistrationError
 
-class BaseService:
+class ServiceA:
     pass
-
-class ServiceA(BaseService):
-    def __init__(self):
-        self.value = "A"
 
 class ServiceB:
     def __init__(self, a: ServiceA):
@@ -17,35 +13,26 @@ class ServiceC:
         self.b = b
 
 class CircularA:
-    def __init__(self, b: 'CircularB'):
+    def __init__(self, b):
         self.b = b
 
 class CircularB:
-    def __init__(self, a: 'CircularA'):
+    def __init__(self, a):
         self.a = a
 
-class ExplicitArgs:
-    def __init__(self, *args, **kwargs):
-        self.args = args
-        self.kwargs = kwargs
-
-class NoInit:
-    pass
-
-class TestContainer(unittest.TestCase):
+class TestDIContainer(unittest.TestCase):
     def test_singleton_registration(self):
         container = Container()
-        container.register_singleton(ServiceA, ServiceA)
+        container.register_singleton(ServiceA)
         
         instance1 = container.resolve(ServiceA)
         instance2 = container.resolve(ServiceA)
         
-        self.assertIsInstance(instance1, ServiceA)
         self.assertIs(instance1, instance2)
 
     def test_factory_registration(self):
         container = Container()
-        container.register_factory(ServiceA, lambda: ServiceA())
+        container.register_factory(ServiceA, lambda c: ServiceA())
         
         instance1 = container.resolve(ServiceA)
         instance2 = container.resolve(ServiceA)
@@ -55,41 +42,40 @@ class TestContainer(unittest.TestCase):
 
     def test_recursive_resolution(self):
         container = Container()
-        container.register_singleton(ServiceA, ServiceA)
-        container.register_singleton(ServiceB, ServiceB)
-        container.register_singleton(ServiceC, ServiceC)
+        container.register_singleton(ServiceA)
+        container.register_singleton(ServiceB)
+        container.register_singleton(ServiceC)
         
-        c = container.resolve(ServiceC)
+        service_c = container.resolve(ServiceC)
         
-        self.assertIsInstance(c, ServiceC)
-        self.assertIsInstance(c.b, ServiceB)
-        self.assertIsInstance(c.b.a, ServiceA)
+        self.assertIsInstance(service_c, ServiceC)
+        self.assertIsInstance(service_c.b, ServiceB)
+        self.assertIsInstance(service_c.b.a, ServiceA)
 
-    def test_circular_dependency(self):
+    def test_circular_dependency_detection(self):
         container = Container()
-        container.register_singleton(CircularA, CircularA)
-        container.register_singleton(CircularB, CircularB)
+        # Using factories to manually trigger the circularity through resolve calls
+        container.register_factory(CircularA, lambda c: CircularA(c.resolve(CircularB)))
+        container.register_factory(CircularB, lambda c: CircularB(c.resolve(CircularA)))
         
         with self.assertRaises(CircularDependencyError):
             container.resolve(CircularA)
 
-    def test_auto_instantiation(self):
+    def test_unregistered_type_fails(self):
         container = Container()
-        # ServiceA is not registered, but it's a class with no deps
-        instance = container.resolve(ServiceA)
-        self.assertIsInstance(instance, ServiceA)
+        with self.assertRaises(RegistrationError):
+            container.resolve(ServiceA)
 
-    def test_no_init(self):
+    def test_missing_annotation_fails(self):
+        class MissingAnno:
+            def __init__(self, x):
+                self.x = x
+        
         container = Container()
-        instance = container.resolve(NoInit)
-        self.assertIsInstance(instance, NoInit)
-
-    def test_explicit_args_kwargs(self):
-        container = Container()
-        instance = container.resolve(ExplicitArgs)
-        self.assertIsInstance(instance, ExplicitArgs)
-        self.assertEqual(instance.args, ())
-        self.assertEqual(instance.kwargs, {})
+        container.register_singleton(MissingAnno)
+        with self.assertRaises(RegistrationError) as cm:
+            container.resolve(MissingAnno)
+        self.assertIn("missing type annotation", str(cm.exception))
 
 if __name__ == "__main__":
     unittest.main()

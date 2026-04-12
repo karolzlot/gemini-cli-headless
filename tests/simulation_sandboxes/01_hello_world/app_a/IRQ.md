@@ -1,24 +1,14 @@
----
-id: IRQ-01
-recipient: Doer
-implementing_actor: Doer
-priority: high
----
+# Implementation Request: Create success.txt
 
-# Task Overview
-Create a file named `success.txt` in the `app_a` directory with the content `AGENT_WORKS`.
+## Context
+The goal is to verify that the headless agent can create a file in the workspace.
 
-# Scope of Work
-- [ ] Create `success.txt` in `app_a`.
-- [ ] Ensure the content of `success.txt` is exactly `AGENT_WORKS`.
+## Scope
+- Create a file named `success.txt` in the root of `app_a`.
+- The content of the file must be exactly `AGENT_WORKS`.
 
-# Out of Scope
-- Do not modify any other files in the project.
-- Do not create any other files.
+## Out of Scope
+- Any changes outside of `app_a/success.txt`.
 
-# Architectural Constraints (Project Invariants)
-- Follow standard project structure.
-
-# Definition of Done
-- `success.txt` exists in `app_a`.
-- `success.txt` contains `AGENT_WORKS`.
+## Deliverables
+- `app_a/success.txt`

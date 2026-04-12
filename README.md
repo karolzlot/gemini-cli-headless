@@ -52,8 +52,19 @@ Dive deeper into the philosophy and mechanics of the Developer OS:
 *   [Specialized QA & The Evolution of Skills](docs/architecture/specialized_qa_skills.md)
 
 ### Usage
+*   [Manager Toolbox (CLI Interaction)](docs/usage/manager_toolbox.md)
 *   [Orchestrator Guide (E2E Workflows)](docs/usage/orchestrator_guide.md)
 *   [Python API Reference (The Wrapper)](docs/usage/wrapper_api.md)
+
+---
+
+## 🚀 The Developer OS v0.2 Features
+
+*   **3-Part Prompting**: Strict Roles, Artifacts, and Project context.
+*   **Artifact Schema Validation**: Automatic reprimands for agents who fail to follow file structures.
+*   **Git Gating**: Enforcement of clean workspaces for deterministic execution.
+*   **Manager Toolbox**: Simplified interaction scripts for project initialization and task creation.
+*   **Structured QA Rituals**: Machine-readable testing instructions.
 
 ---
 

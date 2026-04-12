@@ -1,18 +1,13 @@
----
-id: QAR-01
-recipient: QA
-parent_request: IRQ.md
----
+# QA Request: Create success.txt
 
-# Validation Strategy
-Check for the existence and content of the `success.txt` file.
+## Validation Criteria
+- File `success.txt` must exist in `app_a/`.
+- File content must be exactly `AGENT_WORKS`.
 
-# Feature-Specific Validation Criteria
-- [ ] `success.txt` must exist in `app_a`.
-- [ ] `success.txt` content must be exactly `AGENT_WORKS`.
+## Risk Areas
+- Typos in filename or content.
+- File created in the wrong directory.
 
-# Specific Risk Areas
-- File permissions or encoding issues.
-
-# Mandatory Rituals
-- Ritual 1: Always verify success.txt exists and contains the correct string.
+## Mandatory Checks
+- Verify `success.txt` exists.
+- Verify content is `AGENT_WORKS`.

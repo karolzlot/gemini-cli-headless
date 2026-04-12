@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QA Report (QRP)",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "pattern": "^QRP-v[0-9]+$" },
+    "outcome": { "enum": ["final", "to correct", "blocked"] },
+    "recipient": { "enum": ["Doer", "Manager"] },
+    "parent_request": { "const": "IRQ.md" },
+    "last_implementation_report": { "type": "string", "pattern": "^IRP-v[0-9]+$" },
+    "round": { "type": "integer" }
+  },
+  "required": ["id", "outcome", "recipient", "parent_request", "last_implementation_report", "round"]
+}

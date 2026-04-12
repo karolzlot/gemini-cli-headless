@@ -125,7 +125,15 @@ def get_project_context(workspace: str) -> str:
         with open(gemini_path, 'r', encoding='utf-8') as f:
             context.append(f"<project_context>\n{f.read()}\n</project_context>")
     
-    # 2. Supporting Layer 3: designs/
+    # 2. Structured Rituals: .gemini/qa_rituals.json
+    rituals_path = os.path.join(workspace, ".gemini", "qa_rituals.json")
+    if os.path.exists(rituals_path):
+        with open(rituals_path, 'r', encoding='utf-8') as f:
+            rituals_data = json.load(f)
+            rituals_text = "\n".join([f"- {r.get('name')}: {r.get('instruction')}" for r in rituals_data.get("rituals", [])])
+            context.append(f"<structured_qa_rituals>\n{rituals_text}\n</structured_qa_rituals>")
+
+    # 3. Supporting Layer 3: designs/
     designs_dir = os.path.join(workspace, "designs")
     if os.path.exists(designs_dir):
         design_files = [f for f in os.listdir(designs_dir) if f.endswith('.md')]
@@ -140,12 +148,36 @@ def get_project_context(workspace: str) -> str:
     if not context: return ""
     return "\n<layer_3_context>\n" + "\n\n".join(context) + "\n</layer_3_context>\n"
 
+from tools.validate_artifact import validate_artifact
+
+# --- Constants & Defaults ---
+
+DEFAULT_SCHEMAS_DIR = os.path.join(os.path.dirname(__file__), "schemas")
+
+# --- Git Utilities ---
+
+def is_git_clean(workspace: str) -> bool:
+    try:
+        res = subprocess.run(["git", "status", "--porcelain"], cwd=workspace, capture_output=True, text=True, check=True)
+        return res.stdout.strip() == ""
+    except:
+        return True # Not a git repo or git not found
+
+def git_stage_all(workspace: str):
+    subprocess.run(["git", "add", "."], cwd=workspace, check=True)
+
 # --- Main Logic ---
 
 def run_implementation(workspace: str, config: Dict):
     workspace = os.path.abspath(workspace)
     
-    # 0. Enforce Layer 2 Artifact Presence
+    # 0. Git Gate
+    if config.get("git_gate", False):
+        if not is_git_clean(workspace):
+            print(f"ERROR: Workspace is not clean. Commit or stash changes before running.")
+            return
+
+    # 1. Enforce Layer 2 Artifact Presence
     irq_path = os.path.join(workspace, "IRQ.md")
     qar_path = os.path.join(workspace, "QAR.md")
     
@@ -261,15 +293,24 @@ def run_implementation(workspace: str, config: Dict):
             session_id_qa = f"{run_id}_qa_cont"
 
         qrp_local = os.path.join(workspace, "QRP.md")
+        qrp_schema = os.path.join(DEFAULT_SCHEMAS_DIR, "qrp_schema.json")
         for retry in range(2):
             session = run_gemini_cli_headless(full_prompt_qa, model_id=model_qa, session_id=session_id_qa, cwd=workspace)
             update_stats(state, session, model_qa)
             with open(os.path.join(logs_dir, f"v{i}_qa_try{retry+1}.log"), 'w', encoding='utf-8') as f:
                 f.write(session.text)
             
-            if os.path.exists(qrp_local): break
-            print(f"  [!] Missing QRP.md. Reprimanding (Attempt {retry+1})...")
-            full_prompt_qa = f"ERROR: You did not create QRP.md. You MUST use your tools to write QRP.md to the workspace root.\n\n{full_prompt_qa}"
+            if os.path.exists(qrp_local):
+                # Validate Schema
+                valid, errors = validate_artifact(qrp_local, qrp_schema)
+                if valid:
+                    break
+                else:
+                    print(f"  [!] Invalid QRP.md. Reprimanding (Attempt {retry+1})...")
+                    full_prompt_qa = f"ERROR: Your QRP.md failed validation:\n" + "\n".join([f"- {e}" for e in errors]) + f"\n\nPlease correct the QRP.md file.\n\n{full_prompt_qa}"
+            else:
+                print(f"  [!] Missing QRP.md. Reprimanding (Attempt {retry+1})...")
+                full_prompt_qa = f"ERROR: You did not create QRP.md. You MUST use your tools to write QRP.md to the workspace root.\n\n{full_prompt_qa}"
 
         if os.path.exists(qrp_local):
             qrp_dest = os.path.join(artifacts_dir, f"v{i}_QRP.md")
@@ -319,6 +360,7 @@ if __name__ == "__main__":
     parser.add_argument("--qa-model", help="Override QA model")
     parser.add_argument("--max-iters", type=int, help="Override max iterations")
     parser.add_argument("--registry-base", help="Override base directory for the central registry")
+    parser.add_argument("--git-gate", action="store_true", help="Enable git gate")
     args = parser.parse_args()
     
     config = {
@@ -343,5 +385,6 @@ if __name__ == "__main__":
     if args.qa_model: config["qa_model"] = args.qa_model
     if args.max_iters: config["max_iters"] = args.max_iters
     if args.registry_base: config["registry_base"] = args.registry_base
+    if args.git_gate: config["git_gate"] = True
 
     run_implementation(args.workspace, config)

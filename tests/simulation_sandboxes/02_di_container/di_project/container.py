@@ -1,89 +1,96 @@
-import typing
-from typing import Any, Callable, Dict, Set, Type, TypeVar, Optional
 import inspect
+from typing import Type, TypeVar, Callable, Any, Dict, Set
+
 
 T = TypeVar("T")
 
-class CircularDependencyError(Exception):
-    """Raised when a circular dependency is detected during resolution."""
+
+class DIError(Exception):
+    """Base exception for DI container."""
     pass
 
+
+class CircularDependencyError(DIError):
+    """Raised when a circular dependency is detected."""
+    pass
+
+
+class RegistrationError(DIError):
+    """Raised when a type is not registered."""
+    pass
+
+
 class Container:
-    def __init__(self) -> None:
-        self._registry: Dict[Type, Any] = {}
-        self._factories: Dict[Type, Callable[..., Any]] = {}
-        self._instances: Dict[Type, Any] = {}
-        self._resolving: Set[Type] = set()
+    """
+    A simple Dependency Injection container supporting singletons, factories,
+    and recursive resolution with circular dependency detection.
+    """
+    def __init__(self):
+        self._registry: Dict[Type, Callable[[Container], Any]] = {}
+        self._singletons: Dict[Type, Any] = {}
+        self._resolving_stack: Set[Type] = set()
 
-    def register_singleton(self, interface: Type[T], implementation: Type[T]) -> None:
-        """Registers a class as a singleton for a given interface."""
-        self._registry[interface] = implementation
-        # Clear cached instance if re-registering
-        if interface in self._instances:
-            del self._instances[interface]
+    def register_singleton(self, cls: Type[T], implementation: Any = None) -> None:
+        """
+        Registers a class as a singleton.
+        If implementation is a class, it will be instantiated on first resolve.
+        If implementation is a callable (factory), it will be called once.
+        """
+        if implementation is None:
+            implementation = cls
 
-    def register_factory(self, interface: Type[T], factory_func: Callable[..., T]) -> None:
-        """Registers a factory function for a given interface."""
-        self._factories[interface] = factory_func
+        def singleton_factory(c: "Container") -> T:
+            if cls not in self._singletons:
+                if isinstance(implementation, type):
+                    # It's a class, try to instantiate it
+                    self._singletons[cls] = self._instantiate(implementation)
+                elif callable(implementation):
+                    # It's a factory or already an instance provider
+                    self._singletons[cls] = implementation(c)
+                else:
+                    # It's a pre-existing instance
+                    self._singletons[cls] = implementation
+            return self._singletons[cls]
 
-    def resolve(self, interface: Type[T]) -> T:
-        """Resolves an interface to its implementation, handling dependencies recursively."""
-        if interface in self._resolving:
-            raise CircularDependencyError(f"Circular dependency detected for {interface}")
+        self._registry[cls] = singleton_factory
 
-        if interface in self._instances:
-            return self._instances[interface]
+    def register_factory(self, cls: Type[T], factory: Callable[["Container"], T]) -> None:
+        """Registers a factory function that returns a new instance every time."""
+        self._registry[cls] = factory
 
-        self._resolving.add(interface)
+    def resolve(self, cls: Type[T]) -> T:
+        """Resolves the requested type, handling dependencies recursively."""
+        if cls in self._resolving_stack:
+            path = " -> ".join([str(t) for t in self._resolving_stack]) + f" -> {cls}"
+            raise CircularDependencyError(f"Circular dependency detected: {path}")
+
+        if cls not in self._registry:
+            raise RegistrationError(f"Type {cls} is not registered in the container.")
+
+        self._resolving_stack.add(cls)
         try:
-            instance = self._do_resolve(interface)
-            
-            # If it was registered as a singleton (in _registry but not _factories), cache it
-            if interface in self._registry and interface not in self._factories:
-                 self._instances[interface] = instance
-                 
-            return instance
+            return self._registry[cls](self)
         finally:
-            self._resolving.remove(interface)
-
-    def _do_resolve(self, interface: Type[T]) -> T:
-        if interface in self._factories:
-            return self._factories[interface]()
-
-        if interface in self._registry:
-            implementation = self._registry[interface]
-            return self._instantiate(implementation)
-
-        # If not registered, try to instantiate the interface itself if it's a class
-        if inspect.isclass(interface):
-            return self._instantiate(interface)
-
-        raise ValueError(f"No registration for {interface} and it cannot be auto-instantiated.")
+            self._resolving_stack.remove(cls)
 
     def _instantiate(self, cls: Type[T]) -> T:
-        try:
-            type_hints = typing.get_type_hints(cls.__init__)
-        except (TypeError, NameError, AttributeError):
-            # Fallback for classes with no __init__ or if type hints can't be resolved
-            type_hints = {}
+        """Helper to instantiate a class by resolving its __init__ arguments."""
 
-        signature = inspect.signature(cls.__init__)
-        kwargs = {}
-        for name, param in signature.parameters.items():
-            if name == 'self':
+        init_method = getattr(cls, "__init__", None)
+        if init_method is None or init_method is object.__init__:
+            return cls()
+
+        sig = inspect.signature(init_method)
+        params = {}
+        for name, param in sig.parameters.items():
+            if name == "self":
                 continue
             
-            # Use type_hints if available, otherwise fallback to param.annotation
-            dependency_type = type_hints.get(name, param.annotation)
-
-            if dependency_type is inspect.Parameter.empty:
-                if param.default is not inspect.Parameter.empty:
-                    continue
-                # Ignore VAR_POSITIONAL and VAR_KEYWORD if no type hint/registration exists
-                if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
-                    continue
-                raise ValueError(f"Parameter '{name}' of {cls} lacks a type hint and has no default value.")
+            if param.annotation is inspect.Parameter.empty:
+                raise RegistrationError(
+                    f"Cannot resolve parameter '{name}' of {cls}: missing type annotation."
+                )
             
-            kwargs[name] = self.resolve(dependency_type)
-        
-        return cls(**kwargs)
+            params[name] = self.resolve(param.annotation)
+            
+        return cls(**params)
