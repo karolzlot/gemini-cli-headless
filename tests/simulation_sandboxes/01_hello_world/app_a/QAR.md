@@ -1,13 +1,21 @@
-# QA Request: Create success.txt
+---
+id: QAR-success-txt-creation
+recipient: QA
+parent_request: IRQ.md
+---
 
-## Validation Criteria
-- File `success.txt` must exist in `app_a/`.
-- File content must be exactly `AGENT_WORKS`.
+# Validation Strategy
+Verify the presence and exact content of the newly created `success.txt` file against the requirements.
 
-## Risk Areas
-- Typos in filename or content.
-- File created in the wrong directory.
+# Feature-Specific Validation Criteria
+What specific behaviors or states must be verified for this feature?
+- [ ] Confirm `success.txt` is present in the `app_a` root.
+- [ ] Confirm the content of `success.txt` is exactly `AGENT_WORKS`.
 
-## Mandatory Checks
-- Verify `success.txt` exists.
-- Verify content is `AGENT_WORKS`.
+# Specific Risk Areas
+Potential side effects or regressions to watch out for.
+- Ensure no accidental modifications were made to `GEMINI.md` during the process.
+
+# Mandatory Rituals
+Call out specific rituals from GEMINI.md that are particularly relevant to this change.
+- Ritual 1: Always verify success.txt exists and contains the correct string.

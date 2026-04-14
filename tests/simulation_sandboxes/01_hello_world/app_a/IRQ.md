@@ -1,14 +1,29 @@
-# Implementation Request: Create success.txt
+---
+id: IRQ-success-txt-creation
+recipient: Doer
+implementing_actor: Doer
+priority: high
+---
 
-## Context
-The goal is to verify that the headless agent can create a file in the workspace.
+# Task Overview
+Create a new file named `success.txt` in the root of `app_a` with the specific string content 'AGENT_WORKS'.
 
-## Scope
-- Create a file named `success.txt` in the root of `app_a`.
-- The content of the file must be exactly `AGENT_WORKS`.
+# Scope of Work
+Detailed list of required changes.
+- [ ] Create a file named `success.txt` in the `app_a` directory.
+- [ ] Write the exact string `AGENT_WORKS` into `success.txt`.
 
-## Out of Scope
-- Any changes outside of `app_a/success.txt`.
+# Out of Scope
+Explicitly list what the Doer MUST NOT touch or change.
+- Do not modify `GEMINI.md`.
+- Do not create any other files or directories.
+- Do not add any extra whitespace or newlines unless required by standard file formatting.
 
-## Deliverables
-- `app_a/success.txt`
+# Architectural Constraints (Project Knowledge)
+List specific rules from GEMINI.md or designs/*.md that must be strictly upheld.
+- Adhere to the project structure of `app_a`.
+
+# Definition of Done
+Specific conditions that must be met for this task to be considered complete.
+- `success.txt` exists in the `app_a` directory.
+- `success.txt` contains exactly `AGENT_WORKS`.
