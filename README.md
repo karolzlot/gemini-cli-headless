@@ -1,9 +1,9 @@
-# gemini-cli-headless (Layer 0 Engine)
+# gemini-cli-headless
 
 A standalone, zero-dependency Python wrapper for executing the official Node.js Google Gemini CLI (`@google/gemini-cli`) in fully programmatic, headless mode.
 
-> **Note on Architecture:** 
-> This repository contains **Layer 0** (The Execution Engine). If you are looking for the Autonomous Developer OS (the multi-agent Git state machine, contracts, and dashboard), please visit the **[Cortex](https://github.com/jarek108/Cortex)** repository.
+> **Note:** 
+> While `gemini-cli-headless` is a powerful standalone library, it also serves as the foundational execution engine for **[Cortex](https://github.com/jarek108/Cortex)**, an Autonomous Developer OS for multi-agent software engineering.
 
 ## Why this wrapper?
 While the official Python SDKs are excellent for standard API calls, the `@google/gemini-cli` provides powerful built-in features for developers working with local codebases (e.g., attaching entire directories via `@files` or resuming specific `sessionId` chat histories from the CLI's internal cache).
