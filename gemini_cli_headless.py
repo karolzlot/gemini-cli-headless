@@ -138,7 +138,15 @@ def _execute_single_run(
                 full_prompt += f" @{os.path.abspath(f_path)}"
 
     # Build command
-    cmd_executable = "gemini.cmd" if os.name == 'nt' else "gemini"
+    executable_name = "gemini"
+    cmd_executable = shutil.which(executable_name)
+    
+    if not cmd_executable:
+        raise EnvironmentError(
+            "The '@google/gemini-cli' executable was not found in your PATH. "
+            "Please install it globally by running: npm install -g @google/gemini-cli"
+        )
+
     cmd = [cmd_executable, "-y", "-o", "json"]
     if model_id: cmd.extend(["-m", model_id])
     if session_id_to_use: cmd.extend(["-r", session_id_to_use])

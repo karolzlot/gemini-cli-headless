@@ -19,12 +19,14 @@ This wrapper allows you to leverage those CLI-specific features headlessly withi
 
 ## Installation
 
+This wrapper requires the official Node.js CLI to be available on your system.
+
 ```bash
-# Make sure you have the Node.js CLI installed globally first:
+# 1. Install the official Node.js CLI globally (requires Node.js):
 npm install -g @google/gemini-cli
 
-# Then install this Python wrapper:
-pip install git+https://github.com/jarek108/gemini-cli-headless.git
+# 2. Install the Python wrapper via PyPI:
+pip install gemini-cli-headless
 ```
 
 ## Quick Start
