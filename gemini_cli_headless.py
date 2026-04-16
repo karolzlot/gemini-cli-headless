@@ -10,6 +10,9 @@ import logging
 import re
 import glob
 import time
+import tempfile
+import threading
+import sys
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any, Tuple
 
@@ -27,26 +30,38 @@ class GeminiSession:
     api_errors: List[Dict[str, Any]] = field(default_factory=list)
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
-def _get_cli_chat_dir(project_name: str) -> str:
-    """Returns the internal Gemini CLI chat directory for a given project."""
-    return os.path.join(os.path.expanduser("~"), ".gemini", "tmp", project_name, "chats")
+DEFAULT_ALLOWED_TOOLS = [
+    "read_file",
+    "list_directory",
+    "grep_search",
+    "glob"
+]
+
+def _find_session_file(directory: str, session_id: str) -> str:
+    """Locates a session file matching the ID prefix. Retries with small delay."""
+    if not os.path.exists(directory):
+        return os.path.join(directory, f"session-{session_id}.json")
+    
+    short_id = session_id[:8]
+    patterns = [f"session-*{short_id}*.json", f"*{short_id}*.json"]
+    
+    for attempt in range(5):
+        for pattern in patterns:
+            matches = glob.glob(os.path.join(directory, pattern))
+            if matches:
+                return sorted(matches, key=os.path.getmtime, reverse=True)[0]
+        time.sleep(0.5)
+        
+    return os.path.join(directory, f"session-{session_id}.json")
 
 def _sanitize_project_name(name: str) -> str:
     """Sanitizes a string to match the Gemini CLI project name convention."""
     sanitized = re.sub(r'[^a-z0-9]+', '-', name.lower())
     return sanitized.strip('-')
 
-def _find_session_file(directory: str, session_id: str) -> Optional[str]:
-    """Locates a session file matching the ID prefix in the given directory."""
-    if not os.path.exists(directory):
-        return None
-    short_id = session_id[:8]
-    patterns = [f"session-*{short_id}*.json", f"*{short_id}*.json"]
-    for pattern in patterns:
-        matches = glob.glob(os.path.join(directory, pattern))
-        if matches:
-            return sorted(matches, key=os.path.getmtime, reverse=True)[0]
-    return None
+def _get_cli_chat_dir(project_name: str) -> str:
+    """Returns the internal Gemini CLI chat directory for a given project."""
+    return os.path.join(os.path.expanduser("~"), ".gemini", "tmp", project_name, "chats")
 
 def run_gemini_cli_headless(
     prompt: str,
@@ -61,13 +76,16 @@ def run_gemini_cli_headless(
     # --- Resilience & Auth Params ---
     api_key: Optional[str] = None,
     max_retries: int = 3,
-    retry_delay_seconds: float = 5.0
+    retry_delay_seconds: float = 5.0,
+    # --- Security & Scope Controls ---
+    allowed_tools: Optional[List[str]] = None,
+    allowed_paths: Optional[List[str]] = None
 ) -> GeminiSession:
     """
     Standalone wrapper for the Gemini CLI in headless mode.
     """
     last_exception = None
-    
+
     for attempt in range(max_retries):
         try:
             return _execute_single_run(
@@ -80,7 +98,9 @@ def run_gemini_cli_headless(
                 cwd=cwd,
                 extra_args=extra_args,
                 stream_output=stream_output,
-                api_key=api_key
+                api_key=api_key,
+                allowed_tools=allowed_tools,
+                allowed_paths=allowed_paths
             )
         except (RuntimeError, json.JSONDecodeError) as e:
             last_exception = e
@@ -101,7 +121,9 @@ def _execute_single_run(
     cwd: Optional[str] = None,
     extra_args: Optional[List[str]] = None,
     stream_output: bool = False,
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    allowed_tools: Optional[List[str]] = None,
+    allowed_paths: Optional[List[str]] = None
 ) -> GeminiSession:
     """Internal execution logic for a single CLI invocation."""
     
@@ -111,7 +133,7 @@ def _execute_single_run(
 
     session_id_to_use = session_id
     cli_dir = _get_cli_chat_dir(project_name)
-    
+
     if session_to_resume:
         if session_to_resume.lower().endswith('.json') or os.path.isfile(session_to_resume):
             if not os.path.exists(session_to_resume):
@@ -121,166 +143,133 @@ def _execute_single_run(
                 session_id_to_use = data.get("sessionId")
             if not session_id_to_use:
                 raise ValueError(f"File {session_to_resume} is not a valid Gemini session")
-            if session_id_to_use.startswith('init-'):
-                session_id_to_use = None
-            else:
-                os.makedirs(cli_dir, exist_ok=True)
-                target_path = os.path.join(cli_dir, f"session-{session_id_to_use}.json")
-                shutil.copy2(session_to_resume, target_path)
+            
+            os.makedirs(cli_dir, exist_ok=True)
+            target_path = os.path.join(cli_dir, f"session-{session_id_to_use}.json")
+            shutil.copy2(session_to_resume, target_path)
         else:
             session_id_to_use = session_to_resume
 
-    # Construct prompt string with attachments
-    full_prompt = prompt
+    attachment_strings = []
     if files:
         for f_path in files:
             if os.path.exists(f_path):
-                full_prompt += f" @{os.path.abspath(f_path)}"
+                attachment_strings.append(f" @{os.path.abspath(f_path)}")
 
-    # Build command
-    executable_name = "gemini"
-    cmd_executable = shutil.which(executable_name)
-    
+    cmd_executable = shutil.which("gemini")
     if not cmd_executable:
-        raise EnvironmentError(
-            "The '@google/gemini-cli' executable was not found in your PATH. "
-            "Please install it globally by running: npm install -g @google/gemini-cli"
-        )
+        raise EnvironmentError("The 'gemini' executable was not found in your PATH.")
 
-    cmd = [cmd_executable, "-y", "-o", "json"]
+    cmd = [cmd_executable, "--yolo", "-o", "json"]
     if model_id: cmd.extend(["-m", model_id])
     if session_id_to_use: cmd.extend(["-r", session_id_to_use])
     if extra_args: cmd.extend(extra_args)
-    
-    # Environment injection
-    env = os.environ.copy()
-    if api_key:
-        env["GEMINI_API_KEY"] = api_key
 
-    # Execute by piping the prompt to stdin
-    process = subprocess.Popen(
-        cmd,
-        cwd=cwd,
-        env=env,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding='utf-8',
-        bufsize=1 # Line buffered
-    )
+    policy_path = None
+    prompt_path = None
     
-    # Send the prompt and close stdin
-    if full_prompt:
-        process.stdin.write(full_prompt)
-    process.stdin.close()
+    try:
+        temp_dir = os.path.join(os.path.expanduser("~"), ".gemini", "tmp", project_name, "run")
+        os.makedirs(temp_dir, exist_ok=True)
 
-    combined_output = ""
-    # Read output in real-time
-    while True:
-        line = process.stdout.readline()
-        if not line and process.poll() is not None:
-            break
-        if line:
-            combined_output += line
-            if stream_output:
-                print(line, end="", flush=True)
-
-    process.stdout.close()
-    return_code = process.wait()
-    
-    if not combined_output.strip():
-        raise RuntimeError(f"CLI returned absolutely empty output.")
-
-    # Find all JSON-looking blocks and try to parse them from the end
-    response_data = None
-    last_error = None
-    
-    search_pos = len(combined_output)
-    while search_pos > 0:
-        start_idx = combined_output.rfind('{', 0, search_pos)
-        if start_idx == -1:
-            break
+        if allowed_tools is not None or allowed_paths is not None:
+            tools_whitelist = allowed_tools if allowed_tools is not None else DEFAULT_ALLOWED_TOOLS
+            paths_whitelist = allowed_paths if allowed_paths is not None else [cwd if cwd else os.getcwd()]
+            if temp_dir not in paths_whitelist and "*" not in paths_whitelist:
+                paths_whitelist.append(temp_dir)
             
-        brace_count = 0
-        end_idx = -1
-        for i in range(start_idx, len(combined_output)):
-            if combined_output[i] == '{':
-                brace_count += 1
-            elif combined_output[i] == '}':
-                brace_count -= 1
-                if brace_count == 0:
-                    end_idx = i
-                    break
-        
-        if end_idx != -1:
-            json_str = combined_output[start_idx:end_idx+1]
-            try:
-                candidate = json.loads(json_str)
-                if isinstance(candidate, dict) and ("session_id" in candidate or "response" in candidate or "text" in candidate or "error" in candidate):
-                    response_data = candidate
-                    break
-            except json.JSONDecodeError as e:
-                last_error = e
-        
-        search_pos = start_idx
-
-    if not response_data:
-        raise RuntimeError(f"CLI output did not contain a valid Gemini response JSON. Last error: {last_error}\nOutput: {combined_output[:500]}...")
-    
-    api_errors = []
-    retry_matches = re.findall(r"failed with status (\d+)", combined_output)
-    for code in retry_matches:
-        api_errors.append({"code": int(code), "message": "Transient API Error (Retry)"})
-
-    if "error" in response_data and response_data["error"]:
-        err = response_data["error"]
-        msg = err.get("message") if isinstance(err, dict) else str(err)
-        code = err.get("code", "unknown") if isinstance(err, dict) else "unknown"
-        api_errors.append({"code": code, "message": msg})
-        if not response_data.get("response") and not response_data.get("text"):
-            raise RuntimeError(f"Gemini Error: {msg} (Code: {code})")
-
-    final_session_id = response_data.get("session_id") or session_id_to_use
-    final_session_path = _find_session_file(cli_dir, final_session_id)
-    if not final_session_path:
-        tmp_root = os.path.join(os.path.expanduser("~"), ".gemini", "tmp")
-        if os.path.exists(tmp_root):
-            for p_dir in os.listdir(tmp_root):
-                candidate = _find_session_file(os.path.join(tmp_root, p_dir, "chats"), final_session_id)
-                if candidate:
-                    final_session_path = candidate
-                    break
-        if not final_session_path:
-            final_session_path = os.path.join(cli_dir, f"session-{final_session_id}.json")
-
-    stats_raw = response_data.get("stats", {})
-    aggregated_stats = {
-        "inputTokens": 0,
-        "outputTokens": 0,
-        "thoughtTokens": 0,
-        "cachedTokens": 0,
-        "totalRequests": 0,
-        "totalErrors": 0
-    }
-    
-    if "models" in stats_raw:
-        for model_data in stats_raw["models"].values():
-            tokens = model_data.get("tokens", {})
-            aggregated_stats["inputTokens"] += tokens.get("input", 0)
-            aggregated_stats["outputTokens"] += tokens.get("candidates", 0)
-            aggregated_stats["thoughtTokens"] += tokens.get("thoughts", 0)
-            aggregated_stats["cachedTokens"] += tokens.get("cached", 0)
+            policy_lines = []
+            if tools_whitelist != ["*"]:
+                policy_lines.append("tools:")
+                policy_lines.append("  - name: \"*\"")
+                policy_lines.append("    action: deny")
+                for tool in tools_whitelist:
+                    policy_lines.append(f"  - name: \"{tool}\"")
+                    policy_lines.append("    action: allow")
             
-            api = model_data.get("api", {})
-            aggregated_stats["totalRequests"] += api.get("totalRequests", 0)
-            aggregated_stats["totalErrors"] += api.get("totalErrors", 0)
-    
-    return GeminiSession(
-        text=response_data.get("text", "") or response_data.get("response", ""),
-        session_id=final_session_id,
-        session_path=final_session_path,
-        stats=aggregated_stats,
-        api_errors=api_errors,
-        raw_data=response_data
-    )
+            if paths_whitelist != ["*"]:
+                policy_lines.append("fileSystem:")
+                policy_lines.append("  allowedPaths:")
+                for p in paths_whitelist:
+                    abs_p = os.path.abspath(p).replace('\\', '/')
+                    policy_lines.append(f"    - \"{abs_p}\"")
+            
+            if policy_lines:
+                with tempfile.NamedTemporaryFile(mode='w', suffix=".yaml", dir=temp_dir, delete=False, encoding='utf-8') as tf:
+                    tf.write("\n".join(policy_lines))
+                    policy_path = tf.name
+                cmd.extend(["--policy", policy_path])
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix=".txt", dir=temp_dir, delete=False, encoding='utf-8') as tf:
+            tf.write(prompt)
+            for att in attachment_strings:
+                tf.write(att)
+            prompt_path = tf.name
+        cmd.append(f"@{prompt_path}")
+
+        env = os.environ.copy()
+        env["TERM"] = "dumb"
+        env["NO_COLOR"] = "1"
+        if api_key:
+            env["GEMINI_API_KEY"] = api_key
+
+        process = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding='utf-8',
+            bufsize=1
+        )
+
+        combined_output_list = []
+        
+        # Thread function to read output and print in real-time
+        def read_output():
+            while True:
+                line = process.stdout.readline()
+                if not line:
+                    break
+                combined_output_list.append(line)
+                if stream_output:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+
+        output_thread = threading.Thread(target=read_output)
+        output_thread.start()
+
+        # Main loop: Heartbeat to prevent environment timeout
+        while output_thread.is_alive():
+            if not stream_output:
+                # Print a small dot as heartbeat if we're not already streaming
+                sys.stdout.write(".")
+                sys.stdout.flush()
+            output_thread.join(timeout=30)
+            
+        process.wait()
+        combined_output = "".join(combined_output_list)
+
+        start_idx = combined_output.find('{')
+        end_idx = combined_output.rfind('}')
+        if start_idx == -1 or end_idx == -1:
+            raise RuntimeError(f"CLI did not return JSON. Output: {combined_output}")
+        
+        data = json.loads(combined_output[start_idx:end_idx+1])
+        
+        return GeminiSession(
+            text=data.get("text", ""),
+            session_id=data.get("session_id") or session_id_to_use,
+            session_path=_find_session_file(cli_dir, data.get('session_id') or session_id_to_use or ""),
+            stats=data.get("trace", {}).get("stats", {}),
+            raw_data=data
+        )
+
+    finally:
+        if policy_path and os.path.exists(policy_path):
+            try: os.remove(policy_path)
+            except: pass
+        if prompt_path and os.path.exists(prompt_path):
+            try: os.remove(prompt_path)
+            except: pass
