@@ -90,3 +90,26 @@ run_gemini_cli_headless(
 
 > **?? CRITICAL WARNING:** 
 > When `"run_shell_command"` is accessible, the agent can execute commands directly on your operating system (e.g., PowerShell, Bash). Because the OS shell operates completely outside the Gemini CLI's internal policy engine, **`allowed_paths` restrictions are effectively bypassed.** The agent will have the exact same system permissions as the user running the Python script.
+
+---
+
+### Case 6: The "Control Room" Pattern (Managing Global Personas)
+
+The official Gemini CLI has a built-in feature: when it starts, it automatically searches the `cwd` and every parent directory above it for a file named `GEMINI.md`. If it finds one, it loads those instructions as its "Persona".
+
+If you place a global `GEMINI.md` file in `C:\Users\yourname\projects\` instructing the agent to act as a "Tech Lead", **every script you run in any sub-project will inherit that persona**. This can cause simple data-processing scripts (like summarizing a PDF) to hallucinate and try to "manage" the project instead.
+
+**The Solution:** Do not place global personas above your projects. Instead, move the orchestrating persona into an isolated "Control Room" directory:
+
+```text
+C:\Users\yourname\
+|-- Cortex\                   <-- The Control Room
+|   |-- GEMINI.md             <-- The Manager Persona lives HERE
+|   `-- orchestrate.py
+`-- projects\                 <-- The Target Workspaces
+    |-- app_1\
+    |   `-- data_pipeline.py  <-- Now safe! The CLI will not find the Cortex persona.
+    `-- app_2\
+```
+
+By separating the orchestrator from the target workspaces, your downstream applications can safely use the `gemini-cli-headless` wrapper for raw data processing without accidental persona contamination.
