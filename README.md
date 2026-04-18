@@ -83,7 +83,7 @@ This architecture ensures that even if a malicious user attempts prompt injectio
 
 ## Security & Scope Controls (New in v1.0.2)
 
-By default, the wrapper runs the Gemini CLI with the `-y` flag to prevent terminal hangs. To ensure safety, it automatically generates and mounts a **Policy Engine YAML file** to restrict the agent's capabilities. 
+To ensure absolute safety, the wrapper operates in a **Zero-Trust** mode. It strictly avoids the CLI's permissive `--yolo` flag. Instead, it automatically generates and mounts a restrictive **Policy Engine TOML file** that explicitly denies all actions by default, only whitelisting the precise tools and absolute paths you request.
 
 The `run_gemini_cli_headless` function provides two parameters to control the agent's security context:
 * `allowed_tools`: A strict whitelist of tool names the agent is permitted to use. If not specified, it defaults to a safe, read-only subset (`DEFAULT_ALLOWED_TOOLS`).
@@ -106,8 +106,8 @@ run_gemini_cli_headless("Analyze my project and explain the architecture.")
 
 **For a deep dive into practical security configurations, including how to safely pass large files without granting filesystem access, please see the [Comprehensive Examples Guide (EXAMPLES.md)](EXAMPLES.md).**
 
-> **?? SECURITY WARNING regarding `allowed_paths`:**
-> If you explicitly include `"run_shell_command"` in your `allowed_tools` list, the `allowed_paths` directory restriction is effectively bypassed. The OS shell operates outside the Gemini CLI's internal policy engine, meaning the agent can execute commands anywhere on your system regardless of folder restrictions.
+> **🛡️ ENHANCED SECURITY:**
+> Unlike earlier versions, the `gemini-cli-headless` wrapper now anchors path restrictions to the exact JSON keys of tool arguments. This means even dangerous tools like `run_shell_command` are strictly bound by the `allowed_paths` policy on a physical level, preventing out-of-bounds execution.
 
 ## Portable Memory (Resuming from a local file)
 

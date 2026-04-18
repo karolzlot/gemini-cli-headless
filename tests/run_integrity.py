@@ -186,7 +186,10 @@ def run_integrity_battery(model_id, filter_pattern=None):
                 max_retries=1 
             )
             err = c["logic"](session) if c["logic"] else None
-            if err: monitor.failed += 1
+            if err:
+                monitor.failed += 1
+                if c["name"] == "sec_paths_write_restriction":
+                    print(f"DEBUG {c['name']} RAW: {json.dumps(session.raw_data.get('trace', {}).get('calls', []), indent=2)}")
             else: monitor.passed += 1
             monitor.print_dashboard(c["name"], session, err, time.time() - start)
         except Exception as e:

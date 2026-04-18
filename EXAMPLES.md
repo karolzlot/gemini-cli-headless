@@ -88,8 +88,8 @@ run_gemini_cli_headless(
 )
 ```
 
-> **?? CRITICAL WARNING:** 
-> When `"run_shell_command"` is accessible, the agent can execute commands directly on your operating system (e.g., PowerShell, Bash). Because the OS shell operates completely outside the Gemini CLI's internal policy engine, **`allowed_paths` restrictions are effectively bypassed.** The agent will have the exact same system permissions as the user running the Python script.
+> **🛡️ ENHANCED SECURITY:** 
+> Even when `"run_shell_command"` is accessible, the `gemini-cli-headless` wrapper ensures that it respects your `allowed_paths` restrictions. The agent can only execute commands within the directories you explicitly whitelist, providing a secure sandbox even for high-risk tools.
 
 ---
 

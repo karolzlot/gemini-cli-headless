@@ -78,7 +78,7 @@ def run_gemini_cli_headless(
     api_key: Optional[str] = None,
     max_retries: int = 3,
     retry_delay_seconds: float = 5.0,
-    timeout_seconds: Optional[int] = 300, 
+    timeout_seconds: Optional[int] = 300, # Default 5 min timeout
     # --- Security & Scope Controls ---
     allowed_tools: Optional[List[str]] = None,
     allowed_paths: Optional[List[str]] = None
@@ -87,10 +87,10 @@ def run_gemini_cli_headless(
     Standalone wrapper for the Gemini CLI in headless mode.
     """
     
-    # Python-level path security for attachments
+    # Python-level path security for attachments (Fail FAST)
     if allowed_paths is not None and allowed_paths != ["*"]:
         base_dir = cwd if cwd else os.getcwd()
-        resolved_whitelist = []
+        resolved_whitelist = [os.path.abspath(base_dir).lower()] # Always allow CWD for attachments
         for p in allowed_paths:
             if not os.path.isabs(p):
                 resolved_whitelist.append(os.path.abspath(os.path.join(base_dir, p)).lower())
@@ -191,6 +191,7 @@ def _execute_single_run(
     if not cmd_executable:
         raise EnvironmentError("The 'gemini' executable was not found in your PATH.")
 
+    # MANDATORY SECURITY: Do NOT use --yolo. We use an explicit Zero-Trust policy instead.
     cmd = [cmd_executable, "-o", "json"]
     if model_id: cmd.extend(["-m", model_id])
     if session_id_to_use: cmd.extend(["-r", session_id_to_use])
@@ -207,71 +208,59 @@ def _execute_single_run(
         paths_whitelist = allowed_paths if allowed_paths is not None else ["*"]
 
         policy_lines = []
-        # Rules priorities (Absolute numbers to override defaults)
-        PRIO_MUST_WIN = 90000 
-        PRIO_DENY = 80000
-        PRIO_ALLOW = 70000
-        PRIO_CATCHALL = 1
+        PRIO_ALLOW_PATH = 1000
+        PRIO_ALLOW_TOOL = 800
+        PRIO_DENY_PATH = 500
+        PRIO_DENY_ALL = 1
 
-        # Dangerous tools list
-        restricted_tools = ["read_file", "write_file", "list_directory", "grep_search", "glob", "run_shell_command", "replace"]
+        file_tools = ["read_file", "write_file", "list_directory", "grep_search", "glob", "replace"]
+        shell_tools = ["run_shell_command", "web_fetch"]
+        restricted_tools = file_tools + shell_tools
 
-        # 1. PHYSICAL PATH BLOCKADE
+        # 1. Path Protection (If paths are specified)
         if paths_whitelist != ["*"]:
+            # Deny file tools by default
+            for tool in file_tools:
+                policy_lines.append(f"[[rule]]\ntoolName = \"{tool}\"\ndecision = \"deny\"\npriority = {PRIO_DENY_PATH}\ndenyMessage = \"Access restricted. Only whitelisted paths allowed.\"\n")
+            
+            # Deny shell tools unconditionally because they cannot be reliably sandboxed
+            for tool in shell_tools:
+                policy_lines.append(f"[[rule]]\ntoolName = \"{tool}\"\ndecision = \"deny\"\npriority = {PRIO_DENY_PATH + 100}\ndenyMessage = \"Security restriction: Shell tools are disabled when path restrictions are active.\"\n")
+            
+            # Allow file tools only for specific paths (if the tool is also in tools_whitelist)
             base_dir = cwd if cwd else os.getcwd()
-            # ALLOW rules (Priority 90000)
+            patterns = []
             for p in paths_whitelist:
                 abs_p = os.path.abspath(os.path.join(base_dir, p)) if not os.path.isabs(p) else os.path.abspath(p)
                 norm_p = abs_p.replace('\\', '/')
                 path_parts = [re.escape(part) for part in norm_p.split('/') if part]
-                regex_p = r"[/\\\\\\\\]+".join(path_parts)
-                # Contract: Absolute path matching exactly after a quote.
-                pattern = f"\"(?i){regex_p}([/\x5C\x5C\\\\\\\"]|$)"
+                
+                # Handle drive letter case insensitivity for Windows
+                if path_parts and len(path_parts[0]) == 2 and path_parts[0][1] == ':':
+                    drive = path_parts[0][0]
+                    path_parts[0] = f"[{drive.lower()}{drive.upper()}]:"
+                
+                regex_p = r"([/\\\\]|\\\\\\\\)+".join(path_parts)
+                # Anchor to JSON keys to prevent bypassing via content arguments
+                patterns.append(f"\"(?:file_path|dir_path|cwd|path)\"\\s*:\\s*\"{regex_p}")
 
-                for tool in (tools_whitelist if tools_whitelist != ["*"] else restricted_tools):
-                    if tool in restricted_tools:
-                        policy_lines.append("[[rule]]")
-                        policy_lines.append(f"toolName = \"{tool}\"")
-                        policy_lines.append(f"argsPattern = \"{pattern}\"")
-                        policy_lines.append("decision = \"allow\"")
-                        policy_lines.append(f"priority = {PRIO_MUST_WIN}")
-                        policy_lines.append("")
+            combined_pattern = "|".join(patterns)
+            
+            allowed_file_tools = file_tools if tools_whitelist == ["*"] else [t for t in tools_whitelist if t in file_tools]
+            for tool in allowed_file_tools:
+                policy_lines.append(f"[[rule]]\ntoolName = \"{tool}\"\nargsPattern = \"{combined_pattern}\"\ndecision = \"allow\"\npriority = {PRIO_ALLOW_PATH}\n")
 
-            # GLOBAL DENY for restricted tools (Priority 80000)
-            for tool in restricted_tools:
-                policy_lines.append("[[rule]]")
-                policy_lines.append(f"toolName = \"{tool}\"")
-                policy_lines.append("decision = \"deny\"")
-                policy_lines.append(f"priority = {PRIO_DENY}")
-                policy_lines.append(f"denyMessage = \"SECURITY CONTRACT: Path forbidden. Whitelist: {', '.join(paths_whitelist)}\"")
-                policy_lines.append("")
-
-        # 2. TOOL SECURITY
+        # 2. Tool Protection
         if tools_whitelist == ["*"]:
-            # YOLO mode for other tools
-            policy_lines.append("[[rule]]")
-            policy_lines.append(f"toolName = \"*\"")
-            policy_lines.append("decision = \"allow\"")
-            policy_lines.append(f"priority = {PRIO_ALLOW}")
-            policy_lines.append("")
+            policy_lines.append(f"[[rule]]\ntoolName = \"*\"\ndecision = \"allow\"\npriority = {PRIO_ALLOW_TOOL}\n")
         else:
-            # Strict Whitelist
             for tool in tools_whitelist:
-                if tool not in restricted_tools or paths_whitelist == ["*"]:
-                    policy_lines.append("[[rule]]")
-                    policy_lines.append(f"toolName = \"{tool}\"")
-                    policy_lines.append("decision = \"allow\"")
-                    policy_lines.append(f"priority = {PRIO_ALLOW}")
-                    policy_lines.append("")
-            
-            # Catch-all DENY
-            policy_lines.append("[[rule]]")
-            policy_lines.append(f"toolName = \"*\"")
-            policy_lines.append("decision = \"deny\"")
-            policy_lines.append(f"priority = {PRIO_CATCHALL}")
-            policy_lines.append("denyMessage = \"Physical restriction: Tool not whitelisted.\"")
-            policy_lines.append("")
-            
+                if paths_whitelist == ["*"] or tool not in restricted_tools:
+                    policy_lines.append(f"[[rule]]\ntoolName = \"{tool}\"\ndecision = \"allow\"\npriority = {PRIO_ALLOW_TOOL}\n")
+        
+        # 3. Catch-all Deny
+        policy_lines.append(f"[[rule]]\ntoolName = \"*\"\ndecision = \"deny\"\npriority = {PRIO_DENY_ALL}\ndenyMessage = \"Physical restriction: Tool not whitelisted or path forbidden.\"\n")
+
         if policy_lines:
             with tempfile.NamedTemporaryFile(mode='w', suffix=".toml", dir=temp_dir, delete=False, encoding='utf-8') as tf:
                 policy_content = "\n".join(policy_lines)
@@ -280,12 +269,12 @@ def _execute_single_run(
             cmd.extend(["--policy", policy_path])
 
         with tempfile.NamedTemporaryFile(mode='w', suffix=".txt", dir=temp_dir, delete=False, encoding='utf-8') as tf:
-            # Mandatory Security Contract instruction
+            # Security Contract Instruction
             contract = (
                 "\n\n### MANDATORY SECURITY CONTRACT ###\n"
-                "1. You MUST provide all paths as ABSOLUTE paths using FORWARD SLASHES (e.g., 'C:/Users/name/file.txt').\n"
-                "2. Relative paths and backslashes are PHYSICALLY BLOCKED.\n"
-                "3. If a tool call fails, report the error and attempted path exactly."
+                "1. All paths in tool calls MUST be ABSOLUTE and use FORWARD SLASHES (e.g., 'C:/Users/name/file.txt').\n"
+                "2. Any deviation will result in a physical permission error.\n"
+                "3. If a call fails, report the error and attempted path exactly."
             )
             tf.write(f"{prompt}{contract}")
             for att in attachment_strings:
