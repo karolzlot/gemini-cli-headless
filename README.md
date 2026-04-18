@@ -17,6 +17,25 @@ This wrapper allows you to leverage those CLI-specific features headlessly withi
 * **Session Resumption**: Supports the `-r <sessionId>` flag, and even allows you to inject local `.json` session files directly into the Node CLI cache before execution.
 * **Built-in Resilience**: Automatically catches transient API drops (like 503 errors) and malformed JSON, retrying the subprocess call seamlessly without crashing your script.
 
+## 🛡️ Reliability & Security
+
+The headless wrapper is subjected to a 51-point [Engine Integrity Specification](INTEGRITY.md) to ensure physical enforcement of security boundaries, process resilience, and state persistence.
+
+### Testing Strategy
+
+The project uses a **Group-Based Integration Testing** strategy. Tests are categorized into functional groups (e.g., `sec_tools`, `res`, `ctx`) allowing for surgical validation of the engine using the `pytest -k` selection flag.
+
+*   **Default Execution**: Runs the entire integrity suite on the default model.
+    ```bash
+    pytest
+    ```
+*   **Targeted Execution**: Runs specific groups (e.g., Security and Resilience) on a high-reasoning model.
+    ```bash
+    pytest -k "sec or res" --model gemini-1.5-pro
+    ```
+
+> View the complete list of 51 integration tests in the **[Engine Integrity Specification](INTEGRITY.md)**.
+
 ## Installation
 
 This wrapper requires the official Node.js CLI to be available on your system.

@@ -26,5 +26,8 @@ Homepage = "https://github.com/jarek108/gemini-cli-headless"
 Repository = "https://github.com/jarek108/gemini-cli-headless"
 Issues = "https://github.com/jarek108/gemini-cli-headless/issues"
 
+[tool.pytest.ini_options]
+addopts = "-ra --tb=short"
+
 [tool.setuptools]
 py-modules = ["gemini_cli_headless"]
