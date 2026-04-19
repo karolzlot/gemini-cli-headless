@@ -49,27 +49,25 @@ print(session.text)
 # Output: ["Alice", "Bob"]
 ```
 
-## Why this library? (The Architecture Story)
+## Why this library?
 
 If you try to orchestrate the official Gemini CLI headlessly out-of-the-box, you quickly realize it is a disaster waiting to happen. The raw CLI is optimized for interactive developer usage, not programmatic control.
 
 When building workflows, developers face enormous pain points that `gemini-cli-headless` solves:
 
-**1. The Persona Problem & Model Psychology**
+**1. The Persona Problem & Model Identity**
 The CLI has a hardcoded "Software Engineer" identity. Try asking it to simply extract JSON from a document, and it will often refuse or start explaining its engineering credentials. 
-*   *Our Solution:* We implemented the `system_instruction_override` parameter to completely wipe the agent's mind and replace it with your instructions. Read about how we handle model paranoia in **[Controlling the Agent's Mind (Psychology) →](docs/04_soft_interception_model_psychology.md)**
+*   *Our Solution:* We implemented the `system_instruction_override` parameter to completely wipe the agent's mind and replace it with your instructions. Read about how we handle model paranoia in **[Controlling the Agent's Mind](docs/04_soft_interception_model_psychology.md)**.
 
 **2. Inconsistent Sandboxing & Dangerous Defaults**
 Headless mode requires using `--raw-output` and the `--yolo` flag. By default, the agent has free rein over your filesystem and shell. Trying to restrict the agent to a specific folder or a specific set of tools via CLI flags is extremely difficult and non-transparent.
-*   *Our Solution:* We directly manipulate the undocumented internal policy engine to create a "Zero-Trust" environment. Dive into the deep technical details of **[Enforcing the Sandbox (The Security Kernel) →](docs/02_the_tier_system.md)** and **[Securing the Filesystem (Path Defenses) →](docs/03_path_security_and_anchoring.md)**
+*   *Our Solution:* We directly manipulate the undocumented internal policy engine to create a "Zero-Trust" environment. Dive into the deep technical details of **[Enforcing the Sandbox (The Security Kernel)](docs/02_the_tier_system.md)** and **[Securing the Filesystem (Path Defenses)](docs/03_path_security_and_anchoring.md)**.
 
 **3. Hierarchical Context Pollution**
 If you run the raw CLI inside your project, it stealthily searches parent directories for `GEMINI.md` files. Your headless bot's behavior will mysteriously change depending on which folder it runs in because it's secretly inheriting external project rules.
-*   *Our Solution:* We built a surgical environment trick (`isolate_from_hierarchical_pollution=True`) that forces the CLI into a clean room, guaranteeing your persona remains pure. Understand our overarching philosophy in **[How We Tamed the Engine (Architecture Overview) →](docs/01_architecture_overview.md)**
+*   *Our Solution:* We built a surgical environment trick (`isolate_from_hierarchical_pollution=True`) that forces the CLI into a clean room, guaranteeing your persona remains pure. Understand our overarching philosophy in **[How We Tamed the Engine (Architecture Overview)](docs/01_architecture_overview.md)**.
 
-We have done our best not only to provide clear controls for these challenges, but also to create a suite of smart edge-case tests to verify this safety. You can learn about our trace auditing in **[How We Test →](docs/05_trace_auditing_and_testing.md)**. 
-
-*(For detailed API references and advanced configuration options, also take a look at the **[Usage & Examples page →](docs/06_examples_and_usage.md)**)*
+We have done our best not only to provide clear controls for these challenges, but also to create a suite of smart edge-case tests to verify this safety. You can learn about our trace auditing in **[How We Test](docs/05_trace_auditing_and_testing.md)**. For detailed API references and advanced configuration options, also take a look at the **[Usage & Examples page](docs/06_examples_and_usage.md)**.
 
 ## Recommended Models
 
