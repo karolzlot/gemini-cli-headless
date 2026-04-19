@@ -83,7 +83,8 @@ def run_gemini_cli_headless(
     allowed_tools: Optional[List[str]] = None,
     allowed_paths: Optional[List[str]] = None,
     allowed_commands: Optional[List[str]] = None,
-    system_instruction: Optional[str] = None
+    system_instruction_override: Optional[str] = None,
+    isolate_from_hierarchical_pollution: bool = True
 ) -> GeminiSession:
     """
     Standalone wrapper for the Gemini CLI in headless mode.
@@ -123,7 +124,9 @@ def run_gemini_cli_headless(
                 allowed_tools=allowed_tools,
                 allowed_paths=allowed_paths,
                 allowed_commands=allowed_commands,
-                timeout_seconds=timeout_seconds
+                timeout_seconds=timeout_seconds,
+                system_instruction_override=system_instruction_override,
+                isolate_from_hierarchical_pollution=isolate_from_hierarchical_pollution
             )
         except (RuntimeError, json.JSONDecodeError, PermissionError) as e:
             last_exception = e
@@ -159,7 +162,8 @@ def _execute_single_run(
     allowed_paths: Optional[List[str]] = None,
     allowed_commands: Optional[List[str]] = None,
     timeout_seconds: Optional[int] = None,
-    system_instruction: Optional[str] = None
+    system_instruction_override: Optional[str] = None,
+    isolate_from_hierarchical_pollution: bool = True
 ) -> GeminiSession:
     """Internal execution logic for a single CLI invocation."""
     
@@ -205,14 +209,34 @@ def _execute_single_run(
     prompt_path = None
     system_md_path = None
     
+    env = os.environ.copy()
+    env["TERM"] = "dumb"
+    env["NO_COLOR"] = "1"
+    env["CI"] = "1"
+    env["PYTHONUNBUFFERED"] = "1"
+    if api_key:
+        env["GEMINI_API_KEY"] = api_key
+
     try:
-        temp_dir = os.path.join(os.path.expanduser("~"), ".gemini", "tmp", project_name, "run")
+        effective_cwd = cwd if cwd else os.getcwd()
+
+        # 1. HIERARCHICAL ISOLATION (GEMINI_CLI_HOME trick)
+        # By setting GEMINI_CLI_HOME to the effective CWD, we trigger the CLI's 
+        # isHomeDirectory check, which skips the upward hierarchical context search.
+        if isolate_from_hierarchical_pollution:
+            env["GEMINI_CLI_HOME"] = effective_cwd
+
+        if effective_cwd and os.path.exists(effective_cwd):
+            temp_dir = os.path.join(effective_cwd, ".gemini_headless")
+        else:
+            temp_dir = os.path.join(os.path.expanduser("~"), ".gemini", "tmp", project_name, "run")
+        
         os.makedirs(temp_dir, exist_ok=True)
 
         # Persona Control (GEMINI_SYSTEM_MD override)
-        if system_instruction:
+        if system_instruction_override:
             with tempfile.NamedTemporaryFile(mode='w', suffix=".md", dir=temp_dir, delete=False, encoding='utf-8') as tf:
-                tf.write(system_instruction)
+                tf.write(system_instruction_override)
                 system_md_path = tf.name
 
         tools_whitelist = allowed_tools if allowed_tools is not None else DEFAULT_ALLOWED_TOOLS
@@ -302,13 +326,6 @@ def _execute_single_run(
             prompt_path = tf.name
         cmd.append(f"@{prompt_path}")
 
-        env = os.environ.copy()
-        env["TERM"] = "dumb"
-        env["NO_COLOR"] = "1"
-        env["CI"] = "1"
-        env["PYTHONUNBUFFERED"] = "1"
-        if api_key:
-            env["GEMINI_API_KEY"] = api_key
         if system_md_path:
             env["GEMINI_SYSTEM_MD"] = system_md_path
 

@@ -38,3 +38,20 @@ Instead of threatening the model with errors, the wrapper injects plain, factual
 > *"Note: Please use absolute paths starting with 'D:/sandbox/' for all file operations. You have permission to use these tools: ['read_file', 'replace']. Attached files (prefixed with @) are available in your context window for direct analysis without tools."*
 
 By removing the words "Security," "Contract," and "Forbidden," we bypass the model's refusal logic. The model interprets these as helpful configuration notes rather than a cage, allowing it to work confidently and naturally, while the physical Tier 5 Engine silently enforces the actual boundaries in the background.
+
+## Persona Overriding: The `system_instruction_override` Power
+
+The official Gemini CLI comes pre-configured with a "Software Engineering Agent" personality. While useful for coding, this persona can be destructive when using the CLI headlessly for tasks like raw data extraction, RAG, or creative writing.
+
+`gemini-cli-headless` allows for **Full Persona Replacement** using the `system_instruction_override` parameter.
+
+### How it works:
+When `system_instruction_override` is provided, the wrapper leverages the `GEMINI_SYSTEM_MD` environment variable. This tells the underlying Node.js engine to **completely abandon** its hardcoded software engineer identity and adopt your custom instruction as the core system prompt.
+
+This is the ultimate level of psychological control: you are not just "suggesting" a behavior to an engineer; you are fundamentally redefining what the agent *is* from the first token.
+
+### Hierarchical Isolation
+By default, the Gemini CLI searches for `GEMINI.md` files in parent directories to build context. This can lead to "Hierarchical Memory Pollution" where a project's default rules leak into your headless bot.
+
+`gemini-cli-headless` automatically prevents this by setting `isolate_from_hierarchical_pollution=True` (the default). It uses a surgical environment trick to make the CLI believe it is in its home directory, effectively muting any external `GEMINI.md` discovery and ensuring a perfectly pure persona based solely on your override.
+

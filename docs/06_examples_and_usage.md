@@ -89,6 +89,34 @@ session_2 = run_gemini_cli_headless(
 )
 ```
 
+## Advanced: Full Persona Override (`system_instruction_override`)
+
+You can completely replace the CLI's default "Software Engineer" identity with a custom core instruction. This is essential for non-technical tasks where the default agent behavior (like explaining its "senior engineer" credentials) is undesirable.
+
+`gemini-cli-headless` also enforces **Hierarchical Isolation** by default, ensuring that no `GEMINI.md` files from your workspace pollute your custom bot's identity.
+
+```python
+from gemini_cli_headless import run_gemini_cli_headless
+
+# Define a completely new robotic identity
+sys_inst = """
+You are an FDDS_DATA_BOT. 
+You MUST NOT act as a software engineer. 
+Your ONLY purpose is to extract numeric data from the user's prompt.
+You reply ONLY with a raw JSON array of numbers. 
+No preamble, no explanation, no tools.
+"""
+
+session = run_gemini_cli_headless(
+    prompt="I have 5 apples, 10 oranges, and 3 bananas.",
+    system_instruction_override=sys_inst, # Wipes the SE persona
+    allowed_tools=[] # Physically forbid tools
+)
+
+print(session.text)
+# Output: [5, 10, 3]
+```
+
 ## Understanding the Response Object
 
 The function returns a `GeminiSession` dataclass containing everything you need for orchestration and auditing:

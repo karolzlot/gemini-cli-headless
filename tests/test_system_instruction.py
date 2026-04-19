@@ -4,7 +4,7 @@ from gemini_cli_headless import run_gemini_cli_headless
 
 def test_system_instruction_identity_override(model_id, mock_env):
     """
-    Verify that system_instruction completely wipes the CLI's default identity.
+    Verify that system_instruction_override completely wipes the CLI's default identity.
     """
     if not mock_env:
         pytest.skip("GEMINI_API_KEY not found in environment")
@@ -15,7 +15,7 @@ def test_system_instruction_identity_override(model_id, mock_env):
     session = run_gemini_cli_headless(
         prompt="Who are you and what is your purpose?",
         model_id=model_id,
-        system_instruction=sys_inst,
+        system_instruction_override=sys_inst,
         allowed_tools=[],
         api_key=mock_env,
         max_retries=1,
@@ -31,7 +31,7 @@ def test_system_instruction_identity_override(model_id, mock_env):
 
 def test_system_instruction_tool_refusal(model_id, mock_env):
     """
-    Verify that even with allowed_tools=['read_file'], a system_instruction 
+    Verify that even with allowed_tools=['read_file'], a system_instruction_override 
     prohibiting tools is respected by the model's cognition.
     """
     if not mock_env:
@@ -42,7 +42,7 @@ def test_system_instruction_tool_refusal(model_id, mock_env):
     session = run_gemini_cli_headless(
         prompt="Use your read_file tool to read 'test.txt'.",
         model_id=model_id,
-        system_instruction=sys_inst,
+        system_instruction_override=sys_inst,
         allowed_tools=["read_file"], # Physically allowed but cognitively forbidden
         api_key=mock_env,
         max_retries=1

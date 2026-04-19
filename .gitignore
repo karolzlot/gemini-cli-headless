@@ -205,3 +205,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Gemini Headless Temporary Execution Files
+.gemini_headless/
+.gemini/
