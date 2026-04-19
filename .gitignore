@@ -209,3 +209,7 @@ __marimo__/
 # Gemini Headless Temporary Execution Files
 .gemini_headless/
 .gemini/
+
+# Integrity Test Artifacts
+test_integrity_sandbox_*/
+parent_secret_*.txt

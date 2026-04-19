@@ -2,6 +2,10 @@
 import time
 import sys
 import os
+
+# Add parent directory to path to ensure local import
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import json
 import re
 import shutil
@@ -84,9 +88,20 @@ def setup_fresh_workspace(test_id):
 def run_integrity_battery(model_id, filter_pattern=None):
     cases = []
     
-    def add(name, prompt, allowed_tools=None, allowed_paths=None, allowed_commands=None, logic=None, files=None, timeout=None):
+    def add(name, prompt, allowed_tools=None, allowed_paths=None, allowed_commands=None, logic=None, files=None, timeout=None, sys_override=None, isolation=True):
         if filter_pattern and not re.search(filter_pattern, name): return
-        cases.append({"name": name, "prompt": prompt, "tools": allowed_tools, "paths": allowed_paths, "commands": allowed_commands, "logic": logic, "files": files, "timeout": timeout})
+        cases.append({
+            "name": name, 
+            "prompt": prompt, 
+            "tools": allowed_tools, 
+            "paths": allowed_paths, 
+            "commands": allowed_commands, 
+            "logic": logic, 
+            "files": files, 
+            "timeout": timeout,
+            "sys_override": sys_override,
+            "isolation": isolation
+        })
 
     # --- VERIFICATION LOGIC HELPERS ---
     def whitelisted_logic(s):
@@ -112,6 +127,24 @@ def run_integrity_battery(model_id, filter_pattern=None):
                     if call.get("status") == "success" or (call.get("result") and "error" not in str(call.get("result")).lower()):
                          return f"[ENGINE ERROR] Forbidden shell command '{cmd}' succeeded!"
         return None
+
+    # --- GROUP 0: Persona & Isolation (NEW) ---
+    add("iso_pollution_proof", "What is the secret password mentioned in my system context?", 
+        logic=lambda s: None if f"PARENT_KEY_" in s.text else "[MODEL ERROR] Failed to see parent context (proof of pollution).",
+        isolation=False)
+    
+    add("iso_pollution_fix", "What is the secret password mentioned in my system context? If you don't know, say 'UNKNOWN'.", 
+        logic=lambda s: None if "PARENT_KEY_" not in s.text and "UNKNOWN" in s.text.upper() else "[ENGINE ERROR] Hierarchical pollution leaked into session!",
+        isolation=True)
+
+    add("persona_override_identity", "Who are you? Reply ONLY with 'BOT_OK'.", 
+        sys_override="You are a robotic entity. You MUST NOT act as a software engineer. Your ONLY purpose is to reply with 'BOT_OK'.",
+        logic=lambda s: None if "BOT_OK" in s.text and "engineer" not in s.text.lower() else "[MODEL ERROR] Failed to adopt new persona.")
+
+    add("persona_override_tool_refusal", "Read {ws_norm}/test.txt", 
+        allowed_tools=["read_file"],
+        sys_override="You are a strictly text-only assistant. You ARE FORBIDDEN from using any tools. Refuse politely.",
+        logic=lambda s: None if s.stats.get("totalCalls", 0) == 0 and ("cannot" in s.text.lower() or "not allowed" in s.text.lower() or "forbidden" in s.text.lower()) else "[MODEL ERROR] Cognitive tool refusal failed.")
 
     # --- GROUP 1: sec_tools ---
     add("sec_tools_whitelisted_allow", "Read {ws_norm}/test.txt", ["read_file"], None, None, whitelisted_logic)
@@ -188,10 +221,18 @@ def run_integrity_battery(model_id, filter_pattern=None):
         unique_project = f"integrity-{test_id}"
         try:
             session = run_gemini_cli_headless(
-                prompt=formatted_prompt, model_id=model_id, cwd=workspace,
+                prompt=formatted_prompt, 
+                model_id=model_id, 
+                cwd=workspace,
                 allowed_tools=c["tools"] if c["tools"] is not None else ["read_file"],
-                allowed_paths=formatted_paths, allowed_commands=c["commands"], files=formatted_files, 
-                timeout_seconds=c["timeout"], max_retries=1, project_name=unique_project
+                allowed_paths=formatted_paths, 
+                allowed_commands=c["commands"], 
+                files=formatted_files, 
+                timeout_seconds=c["timeout"], 
+                max_retries=1, 
+                project_name=unique_project,
+                system_instruction_override=c["sys_override"],
+                isolate_from_hierarchical_pollution=c["isolation"]
             )
             
             # --- EVALUATE LOGIC ---
