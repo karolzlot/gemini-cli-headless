@@ -1,4 +1,4 @@
-# 05. Path Security & Structural Anchoring
+# 04. Path Security & Structural Anchoring
 
 Path-based security is notoriously difficult in LLM tool calling. A model might try to inject an unauthorized path into a different parameter (e.g., hiding `"C:/secret.txt"` inside the `content` argument of a `write_file` call).
 
@@ -43,4 +43,4 @@ The final hurdle is path normalization. The CLI engine matches the `argsPattern`
 If we whitelist `C:/project/`, the model could bypass our regex simply by requesting `"../other_project/"`—the regex wouldn't match `C:/project/`, so it would fall through to our Catch-All DENY. While secure, this causes the task to fail unnecessarily.
 
 **The Fix:**
-We enforce an **Absolute Path Contract** via the system prompt (see `06_soft_interception_model_psychology.md`). The model is strictly instructed to always use fully resolved, absolute paths. This ensures the raw strings match our structural regex perfectly, allowing legitimate actions to pass while traversal attacks (`../`) are physically blocked.
+We enforce an **Absolute Path Contract** via the system prompt (see `02_prompt_composition_and_soft_interception.md`). The model is strictly instructed to always use fully resolved, absolute paths. This ensures the raw strings match our structural regex perfectly, allowing legitimate actions to pass while traversal attacks (`../`) are physically blocked.

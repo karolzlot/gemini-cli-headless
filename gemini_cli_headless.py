@@ -119,7 +119,8 @@ def run_gemini_cli_headless(
     allowed_paths: Optional[List[str]] = None,
     allowed_commands: Optional[List[str]] = None,
     system_instruction_override: Optional[str] = None,
-    isolate_from_hierarchical_pollution: bool = True
+    isolate_from_hierarchical_pollution: bool = True,
+    inject_enforcement_contract: bool = True
 ) -> GeminiSession:
     """
     Standalone wrapper for the Gemini CLI in headless mode.
@@ -169,7 +170,8 @@ def run_gemini_cli_headless(
                 allowed_commands=allowed_commands,
                 timeout_seconds=timeout_seconds,
                 system_instruction_override=system_instruction_override,
-                isolate_from_hierarchical_pollution=isolate_from_hierarchical_pollution
+                isolate_from_hierarchical_pollution=isolate_from_hierarchical_pollution,
+                inject_enforcement_contract=inject_enforcement_contract
             )
         except (RuntimeError, json.JSONDecodeError, PermissionError) as e:
             last_exception = e
@@ -206,7 +208,8 @@ def _execute_single_run(
     allowed_commands: Optional[List[str]] = None,
     timeout_seconds: Optional[int] = 300,
     system_instruction_override: Optional[str] = None,
-    isolate_from_hierarchical_pollution: bool = True
+    isolate_from_hierarchical_pollution: bool = True,
+    inject_enforcement_contract: bool = True
 ) -> GeminiSession:
     """Internal execution logic for a single CLI invocation."""
     
@@ -330,6 +333,7 @@ def _execute_single_run(
                 policy_lines.append(f"priority = {PRIO_GENERAL_DENY}")
                 policy_lines.append("decision = \"deny\"\n")
         else:
+            # Deny run_shell_command entirely
             policy_lines.append("[[rule]]")
             policy_lines.append("toolName = \"run_shell_command\"")
             policy_lines.append(f"priority = {PRIO_GENERAL_DENY}")
@@ -358,7 +362,15 @@ def _execute_single_run(
             policy_path = tf.name
         cmd.extend(["--policy", policy_path])
 
-        full_prompt = prompt + "".join(attachment_strings)
+        # ENVIRONMENT CONTEXT Injection (Optional, controlled by user)
+        env_context = ""
+        if inject_enforcement_contract:
+            if tools_whitelist != ["*"]:
+                env_context += f"\n[ENVIRONMENT CONTEXT] You are in a restricted headless environment. Allowed tools: {', '.join(tools_whitelist)}.\n"
+            if paths_whitelist != ["*"]:
+                env_context += f"[ENVIRONMENT CONTEXT] File access is restricted to: {', '.join(paths_whitelist)}. ALWAYS use absolute paths.\n"
+        
+        full_prompt = env_context + prompt + "".join(attachment_strings)
         
         with tempfile.NamedTemporaryFile(mode='w', suffix=".txt", dir=temp_dir, delete=False, encoding='utf-8') as tf:
             tf.write(full_prompt)
@@ -412,6 +424,7 @@ def _execute_single_run(
         if ("modelnotfounderror" in lowered_output or "model not found" in lowered_output) and "error executing tool" not in lowered_output:
              raise RuntimeError(f"Gemini Model Not Found.")
 
+        # Robust JSON extraction: pick the last valid JSON object that contains key session fields
         data = None
         for match in re.finditer(r'\{', combined_output):
             start_idx = match.start()
@@ -440,7 +453,6 @@ def _execute_single_run(
         stats_content = data.get("stats") or data.get("trace", {}).get("stats", {})
 
         # Ensure tool stats are mapped to top level for convenience
-        # We also scan the 'models' object for tool stats in case of subagents
         def _extract_tool_stats(obj):
             t_stats = {"totalCalls": 0, "totalSuccess": 0, "totalFail": 0}
             
