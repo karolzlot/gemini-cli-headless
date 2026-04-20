@@ -84,18 +84,17 @@ For the best balance of speed, cost, and obedience to the strict sandboxing rule
 When operating `gemini-cli-headless` in production, you must understand the following critical constraints:
 
 ### 1. Operating System Support (Windows & Linux)
-This wrapper is fully tested and supported on both **Windows** and **Linux**. It dynamically adjusts its security regexes and sandboxing rules to match the host OS. 
-*   **Verification:** See the **[Cross-Platform Support](docs/08_adding_linux_support.md)** documentation for details on how we maintain parity and test across environments.
+This wrapper is fully tested and supported on both **Windows** and **Linux**, automatically adapting its security boundaries to the host OS. For technical details on how OS differences are handled, see **[Cross-Platform Architecture](docs/08_cross_platform_architecture.md)**.
 
 ### 2. Version Lock & System Brittleness
 This orchestrator relies on deeply undocumented internal mechanics of the Gemini CLI's policy engine. It is strictly version-locked and certified **ONLY for Gemini CLI `v0.38.2`**. Using newer versions may cause the sandbox to silently fail. 
 *   **Action:** Never auto-update the underlying CLI in your production environments. See [Version Lock & Stability](docs/07_version_lock_and_stability.md) for details on breaking changes.
 
-### 2. Persona Leaking & Workspace Isolation
+### 3. Persona Leaking & Workspace Isolation
 If you are using `system_instruction_override` to create a pure data bot, the wrapper defaults to `isolate_from_hierarchical_pollution=True`. This prevents the CLI from walking up the directory tree and discovering `GEMINI.md` files from your parent projects. 
 *   **Action:** Do not disable this flag unless you explicitly want your headless agent to adopt the "Software Engineer" identity of the surrounding workspace.
 
-### 3. Testing the Sandbox (The Integrity Battery)
+### 4. Testing the Sandbox (The Integrity Battery)
 Do not use `pytest` directly to verify the security of the engine. Standard tests only check the model's text output, which is unreliable.
 *   **Action:** To verify physical security and cognitive obedience, use our custom Integrity Battery. It executes 29 extreme edge cases and provides a crucial breakdown between **[MODEL FAIL]** (the AI was stubborn) and **[ENGINE FAIL]** (the Python sandbox leaked).
 
