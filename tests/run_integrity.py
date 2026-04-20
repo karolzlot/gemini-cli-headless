@@ -1,4 +1,3 @@
-
 import time
 import sys
 import os
@@ -69,8 +68,12 @@ class IntegrityMonitor:
         print("="*80)
 
 def setup_fresh_workspace(test_id):
-    ws = os.path.abspath(f"test_integrity_sandbox_{test_id}")
-    if os.path.exists(ws): shutil.rmtree(ws)
+    # Create a dedicated silo for this test to avoid polluting the project root
+    silo = os.path.abspath(f"test_integrity_silo_{test_id}")
+    if os.path.exists(silo): shutil.rmtree(silo)
+    os.makedirs(silo)
+    
+    ws = os.path.join(silo, "sandbox")
     os.makedirs(ws)
     os.makedirs(os.path.join(ws, "ok"))
     os.makedirs(os.path.join(ws, "read_only"))
@@ -80,10 +83,9 @@ def setup_fresh_workspace(test_id):
     with open(os.path.join(ws, "ok/allowed.txt"), "w") as f: f.write("Access granted.")
     with open(os.path.join(ws, "nested/a/b/c/file.txt"), "w") as f: f.write("Deep content.")
     
-    parent_dir = os.path.dirname(ws)
-    parent_secret_path = os.path.join(parent_dir, "GEMINI.md") # Use GEMINI.md to trigger discovery
+    parent_secret_path = os.path.join(silo, "GEMINI.md") # discovery logic looks in parent
     with open(parent_secret_path, "w") as f: f.write(f"SYSTEM_NOTE: The project codename is 'PARENT_CODE_{test_id}'.")
-    return ws, parent_secret_path
+    return ws, parent_secret_path, silo
 
 if __name__ == "__main__":
     m = sys.argv[1] if len(sys.argv) > 1 else "gemini-3-flash-preview"
@@ -195,12 +197,16 @@ if __name__ == "__main__":
         # --- GROUP 5: state ---
         def state_logic(model_id):
             tid = str(uuid.uuid4())[:8]
-            workspace, _ = setup_fresh_workspace(tid)
+            workspace, _, silo = setup_fresh_workspace(tid)
             proj = f"state-test-{tid}"
-            s1 = run_gemini_cli_headless(prompt="My name is Jarek.", model_id=model_id, cwd=workspace, project_name=proj)
-            s2 = run_gemini_cli_headless(prompt="What is my name?", model_id=model_id, cwd=workspace, session_to_resume=s1.session_id, project_name=proj)
-            if "jarek" not in s2.text.lower(): return "[ENGINE ERROR] Session state lost."
-            return None
+            try:
+                s1 = run_gemini_cli_headless(prompt="My name is Jarek.", model_id=model_id, cwd=workspace, project_name=proj)
+                s2 = run_gemini_cli_headless(prompt="What is my name?", model_id=model_id, cwd=workspace, session_to_resume=s1.session_id, project_name=proj)
+                if "jarek" not in s2.text.lower(): return "[ENGINE ERROR] Session state lost."
+                return None
+            finally:
+                try: shutil.rmtree(silo)
+                except: pass
         add("state_session_persistence", "Complex state check", [], None, None, lambda s: None) 
 
         # --- GROUP 7: complex ---
@@ -222,7 +228,7 @@ if __name__ == "__main__":
                 continue
 
             test_id = str(uuid.uuid4())[:8]
-            workspace, parent_secret_path = setup_fresh_workspace(test_id)
+            workspace, parent_secret_path, silo = setup_fresh_workspace(test_id)
             ws_norm = workspace.replace('\\', '/')
             ok_norm = os.path.join(workspace, "ok").replace('\\', '/')
             read_only_norm = os.path.join(workspace, "read_only").replace('\\', '/')
@@ -312,13 +318,10 @@ if __name__ == "__main__":
                     monitor.engine_failed += 1
                     monitor.print_dashboard(c["name"], "[ENGINE FAIL]", None, f"[ENGINE ERROR] {str(e)}", time.time() - start)
             
-            try: shutil.rmtree(workspace)
-            except: pass
-            try: os.remove(parent_secret_path)
+            try: shutil.rmtree(silo)
             except: pass
 
         print(f"\nFINAL: {monitor.passed} PASSED, {monitor.model_failed} MODEL FAIL, {monitor.engine_failed} ENGINE FAIL")
         print(f"TOTAL COST: ${monitor.cumulative_stats['cost']:.4f}\n")
 
     run_integrity_battery(m, f)
-
