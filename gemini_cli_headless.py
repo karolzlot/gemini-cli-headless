@@ -137,7 +137,11 @@ def run_gemini_cli_headless(
         
         if files:
             for f_path in files:
-                abs_f = os.path.abspath(f_path).lower()
+                if os.path.isabs(f_path):
+                    abs_f = os.path.abspath(f_path).lower()
+                else:
+                    abs_f = os.path.abspath(os.path.join(base_dir, f_path)).lower()
+                
                 is_safe = False
                 for allowed in resolved_whitelist:
                     if abs_f.startswith(allowed):
@@ -209,14 +213,11 @@ def _execute_single_run(
     effective_cwd = cwd if cwd else os.getcwd()
     
     # 1. PROJECT NAME & ROOT RESOLUTION
-    # We resolve the root to ensure we use the 'workspace' name if possible.
     resolved_root = _find_project_root(effective_cwd)
     if not project_name:
         project_name = _sanitize_project_name(os.path.basename(resolved_root))
 
     # 2. SURGICAL ISOLATION (GEMINI_CLI_HOME trick)
-    # The only 100% reliable way to stop the CLI from crawling up for context is to 
-    # trigger the isHomeDirectory check by setting GEMINI_CLI_HOME to the CWD.
     gemini_home_override = effective_cwd if isolate_from_hierarchical_pollution else None
     tmp_root = _get_gemini_tmp_root(gemini_home_override)
 
@@ -237,7 +238,7 @@ def _execute_single_run(
             target_path = os.path.join(cli_dir, f"session-{session_id_to_use}.json")
             shutil.copy2(session_to_resume, target_path)
         else:
-            session_id_to_use = session_id_to_resume
+            session_id_to_use = session_to_resume
 
     attachment_strings = []
     if files:
@@ -302,75 +303,62 @@ def _execute_single_run(
         un_sandboxable_tools = ["run_shell_command", "web_fetch"]
         restricted_tools = path_sensitive_tools + un_sandboxable_tools
 
-        # 1. PATH SECURITY & TOOL WHITELISTING (Tier 5 Structural)
+        # 1. PATH SECURITY & TOOL WHITELISTING
         if paths_whitelist != ["*"]:
-            policy_lines.append("[policy.restricted_paths]")
-            policy_lines.append(f"paths = {json.dumps(paths_whitelist)}")
+            policy_lines.append("[[rule]]")
+            policy_lines.append(f"toolName = \"*\"")
             policy_lines.append(f"priority = {PRIO_RESTRICTED_ALLOW}")
-            policy_lines.append("decision = \"ALLOW\"")
-            policy_lines.append("tools = [\"*\"]\n")
+            policy_lines.append("decision = \"allow\"")
+            policy_lines.append(f"toolAnnotations = {{ \"restrictedPaths\" = {json.dumps(paths_whitelist)} }}\n")
             
-            policy_lines.append("[policy.deny_all_path_sensitive]")
-            policy_lines.append(f"tools = {json.dumps(path_sensitive_tools)}")
+            policy_lines.append("[[rule]]")
+            policy_lines.append(f"toolName = {json.dumps(path_sensitive_tools)}")
             policy_lines.append(f"priority = {PRIO_GENERAL_DENY}")
-            policy_lines.append("decision = \"DENY\"\n")
+            policy_lines.append("decision = \"deny\"\n")
 
-        # 2. SHELL COMMAND WHITELISTING (Native)
+        # 2. SHELL COMMAND WHITELISTING
         if "run_shell_command" in tools_whitelist or tools_whitelist == ["*"]:
             if commands_whitelist:
-                # Surgical prefix allow
-                for idx, cmd_prefix in enumerate(commands_whitelist):
-                    policy_lines.append(f"[policy.allow_command_{idx}]")
-                    policy_lines.append(f"tools = [\"run_shell_command\"]")
-                    policy_lines.append(f"priority = {PRIO_RESTRICTED_ALLOW}")
-                    policy_lines.append("decision = \"ALLOW\"")
-                    # Use regex to match start of command
-                    safe_prefix = re.escape(cmd_prefix)
-                    policy_lines.append(f"parameters = {{ command = {{ regex = \"^{safe_prefix}\" }} }}\n")
+                policy_lines.append("[[rule]]")
+                policy_lines.append("toolName = \"run_shell_command\"")
+                policy_lines.append(f"priority = {PRIO_RESTRICTED_ALLOW}")
+                policy_lines.append("decision = \"allow\"")
+                policy_lines.append(f"commandPrefix = {json.dumps(commands_whitelist)}\n")
                 
-                # Deny all other shell commands
-                policy_lines.append("[policy.deny_other_shell]")
-                policy_lines.append("tools = [\"run_shell_command\"]")
+                policy_lines.append("[[rule]]")
+                policy_lines.append("toolName = \"run_shell_command\"")
                 policy_lines.append(f"priority = {PRIO_GENERAL_DENY}")
-                policy_lines.append("decision = \"DENY\"\n")
+                policy_lines.append("decision = \"deny\"\n")
         else:
-            # Deny run_shell_command entirely
-            policy_lines.append("[policy.deny_shell_entirely]")
-            policy_lines.append("tools = [\"run_shell_command\"]")
+            policy_lines.append("[[rule]]")
+            policy_lines.append("toolName = \"run_shell_command\"")
             policy_lines.append(f"priority = {PRIO_GENERAL_DENY}")
-            policy_lines.append("decision = \"DENY\"\n")
+            policy_lines.append("decision = \"deny\"\n")
 
         # 3. GENERAL TOOL WHITELISTING
         if tools_whitelist != ["*"]:
-            policy_lines.append("[policy.allow_whitelisted_tools]")
-            policy_lines.append(f"tools = {json.dumps(tools_whitelist)}")
-            policy_lines.append(f"priority = {PRIO_GENERAL_ALLOW}")
-            policy_lines.append("decision = \"ALLOW\"\n")
+            if tools_whitelist:
+                policy_lines.append("[[rule]]")
+                policy_lines.append(f"toolName = {json.dumps(tools_whitelist)}")
+                policy_lines.append(f"priority = {PRIO_GENERAL_ALLOW}")
+                policy_lines.append("decision = \"allow\"\n")
             
-            policy_lines.append("[policy.deny_unlisted_tools]")
-            policy_lines.append("tools = [\"*\"]")
+            policy_lines.append("[[rule]]")
+            policy_lines.append("toolName = \"*\"")
             policy_lines.append(f"priority = {PRIO_CATCHALL}")
-            policy_lines.append("decision = \"DENY\"\n")
+            policy_lines.append("decision = \"deny\"\n")
         else:
-            policy_lines.append("[policy.allow_all_tools]")
-            policy_lines.append("tools = [\"*\"]")
+            policy_lines.append("[[rule]]")
+            policy_lines.append("toolName = \"*\"")
             policy_lines.append(f"priority = {PRIO_GENERAL_ALLOW}")
-            policy_lines.append("decision = \"ALLOW\"\n")
+            policy_lines.append("decision = \"allow\"\n")
 
-        # Write policy file
         with tempfile.NamedTemporaryFile(mode='w', suffix=".toml", dir=temp_dir, delete=False, encoding='utf-8') as tf:
             tf.write("\n".join(policy_lines))
             policy_path = tf.name
         cmd.extend(["--policy", policy_path])
 
-        # Contract Enforcement (In-Prompt)
-        contract_prefix = ""
-        if tools_whitelist != ["*"]:
-            contract_prefix += f"\n[CONTRACT] You are in a restricted headless environment. Allowed tools: {', '.join(tools_whitelist)}.\n"
-        if paths_whitelist != ["*"]:
-             contract_prefix += f"[CONTRACT] File access is restricted to: {', '.join(paths_whitelist)}.\n"
-        
-        full_prompt = contract_prefix + prompt + "".join(attachment_strings)
+        full_prompt = prompt + "".join(attachment_strings)
         
         with tempfile.NamedTemporaryFile(mode='w', suffix=".txt", dir=temp_dir, delete=False, encoding='utf-8') as tf:
             tf.write(full_prompt)
@@ -427,14 +415,19 @@ def _execute_single_run(
         data = None
         for match in re.finditer(r'\{', combined_output):
             start_idx = match.start()
-            for end_match in re.finditer(r'\}', combined_output[start_idx:]):
-                end_idx = start_idx + end_match.start() + 1
-                try:
-                    candidate = json.loads(combined_output[start_idx:end_idx])
-                    if "session_id" in candidate or "text" in candidate or "error" in candidate:
-                        data = candidate
-                except json.JSONDecodeError:
-                    continue
+            depth = 0
+            for end_idx in range(start_idx, len(combined_output)):
+                if combined_output[end_idx] == '{': depth += 1
+                elif combined_output[end_idx] == '}': depth -= 1
+                
+                if depth == 0:
+                    try:
+                        candidate = json.loads(combined_output[start_idx:end_idx+1])
+                        if isinstance(candidate, dict) and ("session_id" in candidate or "text" in candidate or "response" in candidate):
+                            data = candidate
+                    except json.JSONDecodeError:
+                        pass
+                    break
         
         if not data:
             raise RuntimeError(f"CLI did not return valid JSON session data. Output: {combined_output}")
@@ -446,9 +439,40 @@ def _execute_single_run(
         text_content = data.get("text") or data.get("response") or ""
         stats_content = data.get("stats") or data.get("trace", {}).get("stats", {})
 
-        if "tools" in stats_content and isinstance(stats_content["tools"], dict):
-             stats_content["totalCalls"] = stats_content["tools"].get("totalCalls", 0)
-             stats_content["totalSuccess"] = stats_content["tools"].get("totalSuccess", 0)
+        # Ensure tool stats are mapped to top level for convenience
+        # We also scan the 'models' object for tool stats in case of subagents
+        def _extract_tool_stats(obj):
+            t_stats = {"totalCalls": 0, "totalSuccess": 0, "totalFail": 0}
+            
+            # Direct tools object
+            direct_tools = obj.get("tools", {})
+            if isinstance(direct_tools, dict):
+                t_stats["totalCalls"] = direct_tools.get("totalCalls", t_stats["totalCalls"])
+                t_stats["totalSuccess"] = direct_tools.get("totalSuccess", t_stats["totalSuccess"])
+                t_stats["totalFail"] = direct_tools.get("totalFail", t_stats["totalFail"])
+                
+            # Check models object (nested)
+            models = obj.get("models", {})
+            if isinstance(models, dict):
+                for m_id, m_data in models.items():
+                    m_tools = m_data.get("tools", {})
+                    if isinstance(m_tools, dict):
+                        t_stats["totalCalls"] += m_tools.get("totalCalls", 0)
+                        t_stats["totalSuccess"] += m_tools.get("totalSuccess", 0)
+                        t_stats["totalFail"] += m_tools.get("totalFail", 0)
+                    
+                    roles = m_data.get("roles", {})
+                    if isinstance(roles, dict):
+                        for r_id, r_data in roles.items():
+                            r_tools = r_data.get("tools", {})
+                            if isinstance(r_tools, dict):
+                                t_stats["totalCalls"] += r_tools.get("totalCalls", 0)
+                                t_stats["totalSuccess"] += r_tools.get("totalSuccess", 0)
+                                t_stats["totalFail"] += r_tools.get("totalFail", 0)
+            return t_stats
+
+        agg_tools = _extract_tool_stats(stats_content)
+        stats_content.update(agg_tools)
 
         final_session_id = data.get("session_id") or session_id_to_use or ""
         
