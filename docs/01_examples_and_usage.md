@@ -127,6 +127,20 @@ print(session.text)
 # Output: [5, 10, 3]
 ```
 
+## Advanced: Prompt Control (`inject_enforcement_contract`)
+
+By default, the library prepends an `[ENVIRONMENT CONTEXT]` block to your prompt to inform the model about its whitelisted tools and mandate the use of absolute paths. This prevents the model from paralyzing itself in a restricted sandbox.
+
+Power users who want 100% control over the exact text sent to the model can disable this auto-injection.
+
+```python
+session = run_gemini_cli_headless(
+    prompt="My fully custom prompt where I explain tools myself.",
+    allowed_tools=["read_file"],
+    inject_enforcement_contract=False # Disables the auto-injected instructions
+)
+```
+
 ## Understanding the Response Object
 
 The function returns a `GeminiSession` dataclass containing everything you need for orchestration and auditing:
