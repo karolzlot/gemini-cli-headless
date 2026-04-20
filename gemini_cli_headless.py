@@ -273,16 +273,15 @@ def _execute_single_run(
         raise ValueError("GEMINI_API_KEY is missing. You must set it in your environment or pass it via the 'api_key' argument.")
 
     try:
-        # Apply isolation via GEMINI_CLI_HOME
-        if isolate_from_hierarchical_pollution:
-            env["GEMINI_CLI_HOME"] = effective_cwd
+        # Create a temporary directory in the system temp folder to prevent polluting the project root
+        temp_dir = tempfile.mkdtemp(prefix="gemini_headless_run_")
 
-        if effective_cwd and os.path.exists(effective_cwd):
-            temp_dir = os.path.join(effective_cwd, ".gemini_headless")
-        else:
-            temp_dir = os.path.join(tmp_root, project_name, "run")
-        
-        os.makedirs(temp_dir, exist_ok=True)
+        # Apply isolation via GEMINI_CLI_HOME
+        gemini_home_existed = False
+        if isolate_from_hierarchical_pollution:
+            gemini_home_path = os.path.join(effective_cwd, ".gemini")
+            gemini_home_existed = os.path.exists(gemini_home_path)
+            env["GEMINI_CLI_HOME"] = effective_cwd
 
         # Persona Control (GEMINI_SYSTEM_MD override)
         if system_instruction_override:
@@ -487,11 +486,27 @@ def _execute_single_run(
         stats_content.update(agg_tools)
 
         final_session_id = data.get("session_id") or session_id_to_use or ""
+        session_path = _find_session_file(cli_dir, final_session_id, tmp_root)
+        
+        # Cleanup isolated .gemini folder to avoid polluting project root
+        if isolate_from_hierarchical_pollution and not gemini_home_existed and os.path.exists(gemini_home_path):
+            if session_path and os.path.exists(session_path):
+                # Salvage the session file to system temp before nuking the folder
+                safe_sessions_dir = os.path.join(tempfile.gettempdir(), "gemini_headless_sessions")
+                os.makedirs(safe_sessions_dir, exist_ok=True)
+                new_session_path = os.path.join(safe_sessions_dir, f"session-{final_session_id}.json")
+                shutil.copy2(session_path, new_session_path)
+                session_path = new_session_path
+            
+            try:
+                shutil.rmtree(gemini_home_path)
+            except:
+                pass
         
         return GeminiSession(
             text=text_content,
             session_id=final_session_id,
-            session_path=_find_session_file(cli_dir, final_session_id, tmp_root),
+            session_path=session_path,
             stats=stats_content,
             raw_data=data
         )
@@ -505,4 +520,7 @@ def _execute_single_run(
             except: pass
         if system_md_path and os.path.exists(system_md_path):
             try: os.remove(system_md_path)
+            except: pass
+        if 'temp_dir' in locals() and os.path.exists(temp_dir):
+            try: shutil.rmtree(temp_dir)
             except: pass
