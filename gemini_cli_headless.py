@@ -144,6 +144,7 @@ def run_gemini_cli_headless(
 ) -> GeminiSession:
     """
     Standalone wrapper for the Gemini CLI in headless mode.
+    Secured via Tier-4 Sandboxing logic.
     """
     
     # Python-level path security for attachments
