@@ -74,29 +74,15 @@ If you run the raw CLI inside your project, it stealthily searches parent direct
 *   *Our Solution:* We built a surgical environment trick (`isolate_from_hierarchical_pollution=True`) that forces the CLI into a clean room using `GEMINI_CLI_HOME` and `GEMINI_SYSTEM_MD`. This guarantees your persona remains pure and prevents parent folder pollution, while our custom **Workspace Root Resolution** and **Robust Session Discovery** ensure that chat histories are still reliably found and saved in the correct project directory. Understand our overarching philosophy in **[How We Tamed the Engine (Architecture Overview)](docs/04_architecture_overview.md)**.
 
 We have done our best not only to provide clear controls for these challenges, but also to create a suite of smart edge-case tests to verify this safety. You can learn about our trace auditing in **[How We Test](docs/07_trace_auditing_and_testing.md)**. For detailed API references and advanced configuration options, also take a look at the **[Usage & Examples page](docs/01_examples_and_usage.md)**.
-## Recommended Models
+## Best Practices
 
+### Recommended Models
 For the best balance of speed, cost, and obedience to the strict sandboxing rules, we strongly recommend using the following specific models:
-
 1.  **`gemini-3.1-flash-lite-preview`**: The best choice for high-volume, tool-restricted tasks and data extraction. Extremely fast.
 2.  **`gemini-3-flash-preview`**: Excellent middle ground for agents that need to use basic tools (read/write files) rapidly.
 3.  **`gemini-3.1-pro-preview`**: Use this when the task requires deep reasoning or complex, multi-step shell orchestrations.
 
----
-
-## ⚠️ Critical Warnings & Best Practices
-
-When operating `gemini-cli-headless` in production, you must understand the following critical constraints:
-
-### 1. Version Lock & System Brittleness
-This orchestrator relies on deeply undocumented internal mechanics of the Gemini CLI's policy engine. It is strictly version-locked and certified **ONLY for Gemini CLI `v0.38.2`**. Using newer versions may cause the sandbox to silently fail. 
-*   **Action:** Never auto-update the underlying CLI in your production environments. We maintain an **Automated Nightly Monitor** via GitHub Actions to detect breaking upstream changes immediately. See [Version Lock & Stability](docs/09_version_lock_and_stability.md) for details.
-
-### 2. Persona Leaking & Workspace Isolation
-If you are using `system_instruction_override` to create a pure data bot, the wrapper defaults to `isolate_from_hierarchical_pollution=True`. This prevents the CLI from walking up the directory tree and discovering `GEMINI.md` files from your parent projects. 
-*   **Action:** Do not disable this flag unless you explicitly want your headless agent to adopt the "Software Engineer" identity of the surrounding workspace.
-
-### 3. Testing the Sandbox (The Integration Test Battery)
+### Testing the Sandbox (The Integration Test Battery)
 Do not use `pytest` directly to verify the security of the engine. Standard tests only check the model's text output, which is unreliable.
 *   **Action:** To verify physical security and cognitive obedience, use our custom Integration Test Battery. It executes 29 extreme edge cases and provides a crucial breakdown between **[MODEL FAIL]** (a cognitive refusal; does not block CI) and **[ENGINE FAIL]** (a physical sandbox leak; fatally blocks CI).
 
@@ -108,14 +94,22 @@ git push --no-verify
 ```
 For more details, see **[Trace Auditing & Testing](docs/07_trace_auditing_and_testing.md)**.
 
-### 4. Broken Path Security (Upstream Bug)
+---
+
+## ⚠️ Critical Warnings
+
+When operating `gemini-cli-headless` in production, you must understand the following critical constraints:
+
+### 1. Broken Path Security (Upstream Bug)
 > **🚨 CRITICAL WARNING: PATH SECURITY IS CURRENTLY BROKEN 🚨**
 > Do NOT use the `allowed_paths` parameter in the current version. Due to a static compiler bug in the upstream Gemini CLI policy engine, attempting to restrict paths will permanently delete all tools from the agent's schema, causing severe hallucinations. Rely on `allowed_tools` and `allowed_commands` for security instead. *(See the `canary_tool_presence_baseline` vs `canary_upstream_compiler_bug` tests in our integration suite for reproducible proof of this defect).*
 > 
 > *Note: The library will actively emit a `logger.warning()` to your console at runtime if it detects you attempting to use `allowed_paths` to prevent accidental deployments of broken agents.*
 
----
+### 2. Version Lock & System Brittleness
+This orchestrator relies on deeply undocumented internal mechanics of the Gemini CLI's policy engine. It is strictly version-locked and certified **ONLY for Gemini CLI `v0.38.2`**. Using newer versions may cause the sandbox to silently fail. 
+*   **Action:** Never auto-update the underlying CLI in your production environments. We maintain an **Automated Nightly Monitor** via GitHub Actions to detect breaking upstream changes immediately. See [Version Lock & Stability](docs/09_version_lock_and_stability.md) for details.
 
-## Operating System Support
-
-This wrapper is fully tested and supported on both **Windows** and **Linux**, automatically adapting its security boundaries to the host OS. For technical details on how OS differences are handled, see **[Cross-Platform Architecture](docs/08_cross_platform_architecture.md)**.
+### 3. Persona Leaking & Workspace Isolation
+If you are using `system_instruction_override` to create a pure data bot, the wrapper defaults to `isolate_from_hierarchical_pollution=True`. This prevents the CLI from walking up the directory tree and discovering `GEMINI.md` files from your parent projects. 
+*   **Action:** Do not disable this flag unless you explicitly want your headless agent to adopt the "Software Engineer" identity of the surrounding workspace.
