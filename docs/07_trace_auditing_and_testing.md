@@ -4,14 +4,19 @@ Verifying the integrity of an AI wrapper is fundamentally different from testing
 
 ## Quick Start: Running the Integration Test Battery
 
-To verify the physical security and cognitive obedience of the wrapper, we use a custom 29-point test battery.
+To verify the physical security and cognitive obedience of the wrapper, we use a custom test battery.
 
 **To run the battery manually:**
 Ensure your `GEMINI_API_KEY` is exported in your environment, then run:
 ```bash
-# We recommend using gemini-3.1-flash-lite-preview for testing due to speed and cost
-python tests/run_integration_tests.py gemini-3.1-flash-lite-preview
+# We recommend using gemini-3-flash-preview for testing due to speed and cost
+python tests/run_integration_tests.py gemini-3-flash-preview
 ```
+
+**Expected Output:**
+When running the tests, you should expect a live-updating dashboard providing a system snapshot, execution hierarchy, and real-time progress of the active test battery:
+
+![Integration Test Runner Dashboard](assets/test_runner_dashboard.png)
 
 **To run the battery automatically before pushing:**
 We implement a Local Opt-Out Pre-Push Git Hook. The battery will automatically trigger before code is pushed to your remote repository if any core code files were modified. To bypass the tests (e.g., when you are certain your changes are safe), you can use the standard Git bypass flag:
@@ -102,8 +107,8 @@ For developers on Windows, you can verify cross-platform parity using the Window
 2.  Ensure you have **Node.js v20+** and the Gemini CLI installed.
 3.  Navigate to the project root and run the standard integration script:
     ```bash
-    python3 tests/run_integration_tests.py gemini-3.1-flash-lite-preview
-    ```
+    python3 tests/run_integration_tests.py gemini-3-flash-preview
+```
 The script will automatically detect the Linux environment and adjust its security targets (e.g., checking `/etc/passwd` instead of `win.ini`) accordingly.
 
 ## Automated Upstream Monitoring
