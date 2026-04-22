@@ -67,7 +67,7 @@ The CLI has a hardcoded "Software Engineer" identity. Try asking it to simply ex
 
 **2. Inconsistent Sandboxing & Dangerous Defaults**
 Headless mode requires using `--raw-output` and the `--yolo` flag. By default, the agent has free rein over your filesystem and shell. Trying to restrict the agent to a specific folder or a specific set of tools via CLI flags is extremely difficult and non-transparent.
-*   *Our Solution:* We directly manipulate the undocumented internal policy engine to create a "Zero-Trust" environment. Dive into the deep technical details of **[Enforcing the Sandbox (The Security Kernel)](docs/05_the_tier_system.md)** and 🚨 **[Securing the Filesystem (Path Defenses)](docs/03_path_security_and_anchoring.md)** *(Note: path control is currently not possible due to an upstream gemini-cli bug, see link for details)*.
+*   *Our Solution:* We directly manipulate the undocumented internal policy engine to create a "Zero-Trust" environment. Dive into the deep technical details of **[Enforcing the Sandbox (The Security Kernel)](docs/05_the_tier_system.md)** and ~~**[Securing the Filesystem (Path Defenses)](docs/03_path_security_and_anchoring.md)**~~ **🚨 Note: path control is currently not possible due to an upstream gemini-cli bug, see link for details.**
 
 **3. Hierarchical Context Pollution**
 If you run the raw CLI inside your project, it stealthily searches parent directories for `GEMINI.md` files. Your headless bot's behavior will mysteriously change depending on which folder it runs in because it's secretly inheriting external project rules.
