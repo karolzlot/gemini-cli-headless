@@ -492,9 +492,9 @@ def _execute_single_run(
                         sys.stdout.write(line)
                         sys.stdout.flush()
                     except UnicodeEncodeError:
-                        # Fallback for Windows consoles with limited encodings
-                        sys.stdout.write(line.encode('ascii', 'replace').decode('ascii'))
-                        sys.stdout.flush()
+                        # Fallback for Windows consoles with limited encodings (like cp1252)
+                        sys.stdout.buffer.write(line.encode('utf-8'))
+                        sys.stdout.buffer.flush()
         
         output_thread = threading.Thread(target=read_output)
         output_thread.start()
