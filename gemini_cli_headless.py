@@ -25,6 +25,36 @@ class GeminiSession:
     api_errors: List[Dict[str, Any]] = field(default_factory=list)
     raw_data: Dict[str, Any] = field(default_factory=dict)
 
+class QuotaExhaustedError(RuntimeError):
+    """Base class for quota errors."""
+    pass
+
+class MinuteQuotaExhaustedError(QuotaExhaustedError):
+    """Raised when the per-minute rate limit is reached."""
+    pass
+
+class DailyQuotaExhaustedError(QuotaExhaustedError):
+    """Raised when the daily quota is reached."""
+    pass
+
+def _is_quota_error(text: str) -> bool:
+    """Uses precise regex to detect quota-related errors, avoiding false positives like '429' in IDs."""
+    if not text:
+        return False
+    
+    patterns = [
+        r'(?i)quota\s+exhausted',
+        r'(?i)rate\s+limit\s+reached',
+        r'(?i)too\s+many\s+requests',
+        r'(?i)status[:\s]+429',
+        r'(?i)"code"[:\s]+429',
+        r'(?i)429\s+too\s+many\s+requests'
+    ]
+    for pattern in patterns:
+        if re.search(pattern, text):
+            return True
+    return False
+
 DEFAULT_ALLOWED_TOOLS = [
     "read_file",
     "list_directory",
@@ -206,8 +236,13 @@ def run_gemini_cli_headless(
             )
         except (RuntimeError, json.JSONDecodeError, PermissionError) as e:
             last_exception = e
-            if "exhausted" in str(e).lower() or "quota" in str(e).lower() or "429" in str(e):
+            if isinstance(e, QuotaExhaustedError) or _is_quota_error(str(e)):
                 logger.error(f"Gemini API Quota Exhausted (429). Failing fast.")
+                if not isinstance(e, QuotaExhaustedError):
+                     # Wrap in structured exception if caught via string matching
+                     if "daily" in str(e).lower():
+                         raise DailyQuotaExhaustedError(str(e))
+                     raise MinuteQuotaExhaustedError(str(e))
                 raise last_exception
             
             if isinstance(e, PermissionError):
@@ -464,12 +499,13 @@ def _execute_single_run(
         except subprocess.TimeoutExpired: process.kill(); raise
             
         combined_output = "".join(combined_output_list)
-        lowered_output = combined_output.lower()
-        if "exhausted" in lowered_output or "quota" in lowered_output or "429" in lowered_output:
-             if "daily" in lowered_output:
-                 raise RuntimeError(f"DAILY_QUOTA_EXHAUSTED: Your daily limit has been reached. Output: {combined_output[:500]}")
+        if _is_quota_error(combined_output):
+             if "daily" in combined_output.lower():
+                 raise DailyQuotaExhaustedError(f"DAILY_QUOTA_EXHAUSTED: Your daily limit has been reached. Output: {combined_output[:500]}")
              else:
-                 raise RuntimeError(f"MINUTE_QUOTA_EXHAUSTED: Rate limit reached. Wait required. Output: {combined_output[:500]}")
+                 raise MinuteQuotaExhaustedError(f"MINUTE_QUOTA_EXHAUSTED: Rate limit reached. Wait required. Output: {combined_output[:500]}")
+        
+        lowered_output = combined_output.lower()
         
         if ("modelnotfounderror" in lowered_output or "model not found" in lowered_output) and "error executing tool" not in lowered_output:
              raise RuntimeError(f"Gemini Model Not Found.")
@@ -484,8 +520,13 @@ def _execute_single_run(
                 if depth == 0:
                     try:
                         candidate = json.loads(combined_output[start_idx:end_idx+1])
-                        if isinstance(candidate, dict) and ("session_id" in candidate or "text" in candidate or "response" in candidate):
-                            data = candidate
+                        if isinstance(candidate, dict):
+                            if "session_id" in candidate or "text" in candidate or "response" in candidate:
+                                data = candidate
+                            elif "error" in candidate:
+                                err_obj = candidate["error"]
+                                if isinstance(err_obj, dict) and (err_obj.get("code") == 429 or _is_quota_error(err_obj.get("message", ""))):
+                                    raise MinuteQuotaExhaustedError(f"Gemini API Error (429): {err_obj.get('message', 'Quota exceeded')}")
                     except json.JSONDecodeError: pass
                     break
         
